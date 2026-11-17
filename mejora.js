@@ -1,11 +1,12 @@
 // ============================================================================
-// mejora.js — v2.2 (Vista Semanal Comidas/Cenas + PDFs y Visor en Ajustes +
-// Importador IA de Revisión Clínica + Barra Inferior Elevada + Blindaje Key)
+// mejora.js — v2.3 (Gemini 3.8 Flash + Visor PDF en Revisión Clínica +
+// Vista Semanal Comidas/Cenas + PDFs en Ajustes + Barra Inferior Elevada)
 // ============================================================================
 
 (function () {
   const KEY_BACKUP_STORAGE = "nutriplan_gemini_key_backup";
   const PDF_STORAGE_PREFIX = "nutriplan_raw_plan_";
+  const CLIN_PDF_PREFIX = "nutriplan_clin_pdf_";
 
   const BOTTOM_TABS = [
     { id: "planner", icon: "🗓️", label: "Plan" },
@@ -80,7 +81,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 2. BLINDAJE DE API KEY GEMINI Y COMPATIBILIDAD NIVEL GRATUITO
+  // 2. BLINDAJE DE API KEY GEMINI + MODELO ACTUALIZADO (gemini-3.8-flash)
   // --------------------------------------------------------------------------
   function getResolvedGeminiKey() {
     const fromState = (window.state?.settings?.geminiApiKey || "").trim();
@@ -157,10 +158,11 @@
         generationConfig: { temperature: options.temperature ?? 0.2 }
       };
 
-      const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash"];
-      let lastError = null;
+      const modelsToTry = ["gemini-3.8-flash", "gemini-2.5-flash"];
+      let primaryError = null;
 
-      for (const modelName of modelsToTry) {
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const modelName = modelsToTry[i];
         try {
           const resp = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -174,9 +176,13 @@
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
             const msg = errData?.error?.message || `Error HTTP ${resp.status}`;
-            lastError = new Error(msg);
-            if (resp.status === 400 && /API key not valid/i.test(msg)) throw lastError;
-            continue;
+            const errObj = new Error(msg);
+            if (!primaryError) primaryError = errObj;
+            // Reintentar con el segundo modelo solo si el primero devuelve 404 (no encontrado)
+            if (resp.status === 404 && i < modelsToTry.length - 1) {
+              continue;
+            }
+            throw errObj;
           }
 
           const data = await resp.json();
@@ -184,16 +190,16 @@
           if (!rawText) throw new Error("Respuesta vacía de la IA.");
           return rawText;
         } catch (err) {
-          lastError = err;
-          if (/API key not valid/i.test(err.message || "")) break;
+          if (!primaryError) primaryError = err;
+          if (i === modelsToTry.length - 1) throw primaryError;
         }
       }
-      throw lastError || new Error("No se pudo conectar con Gemini API.");
+      throw primaryError || new Error("No se pudo conectar con Gemini API.");
     };
   }
 
   // --------------------------------------------------------------------------
-  // 3. PESTAÑA PLAN: SOLO ALMUERZOS Y CENAS EN VISTA SEMANA + QUITAR BOTONES PDF
+  // 3. PESTAÑA PLAN: SOLO ALMUERZOS Y CENAS EN VISTA SEMANA + SIN BOTONES PDF
   // --------------------------------------------------------------------------
   function hidePdfButtonsInPlanner() {
     const btnMeals = document.querySelector('#view-planner button[onclick="printMealsPDF()"]');
@@ -244,7 +250,6 @@
     const isWeekOnlyMain = plannerSubView === "week";
     const daysIndices = isWeekOnlyMain ? [0, 1, 2, 3, 4, 5, 6] : [selectedDayIdx];
 
-    // MODO VISIÓN CONJUNTA
     if (isCouple && activeView === "joint") {
       container.innerHTML = daysIndices
         .map((dIdx) => {
@@ -314,7 +319,6 @@
       return;
     }
 
-    // MODO PERFIL INDIVIDUAL
     const uid = isCouple ? activeView : "nando";
     const profile = state.profiles[uid];
     const partnerId = uid === "nando" ? "noelia" : "nando";
@@ -389,7 +393,7 @@
   };
 
   // --------------------------------------------------------------------------
-  // 4. PESTAÑA AJUSTES: BOTONES PDF + VISOR DE PLANES NUTRICIONALES SUBIDOS
+  // 4. MODAL VISOR UNIVERSAL DE DOCUMENTOS (PLANES Y REVISIONES CLÍNICAS)
   // --------------------------------------------------------------------------
   function ensurePlanViewerModal() {
     if (document.getElementById("planViewerModal")) return;
@@ -400,8 +404,8 @@
       <div class="bg-white w-full max-w-3xl rounded-3xl p-4 shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col space-y-3">
         <div class="flex items-center justify-between border-b border-slate-100 pb-2">
           <div>
-            <h3 id="planViewerTitle" class="text-sm font-extrabold text-slate-900">Plan Nutricional</h3>
-            <p id="planViewerSubtitle" class="text-[11px] text-slate-500">Visualización del documento y estructura cargada</p>
+            <h3 id="planViewerTitle" class="text-sm font-extrabold text-slate-900">Documento</h3>
+            <p id="planViewerSubtitle" class="text-[11px] text-slate-500">Visualización</p>
           </div>
           <button onclick="document.getElementById('planViewerModal').classList.add('hidden')"
             class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">✕</button>
@@ -410,6 +414,26 @@
       </div>
     `;
     document.body.appendChild(modal);
+  }
+
+  function buildDocumentEmbedHtml(rawDataUrl, downloadName) {
+    if (!rawDataUrl) return "";
+    if (rawDataUrl.startsWith("data:application/pdf")) {
+      return `
+        <div class="space-y-2">
+          <div class="flex justify-end">
+            <a href="${rawDataUrl}" download="${downloadName}.pdf"
+              class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold">⬇️ Descargar PDF</a>
+          </div>
+          <iframe src="${rawDataUrl}" class="w-full h-[55vh] rounded-2xl border border-slate-200"></iframe>
+        </div>
+      `;
+    }
+    return `
+      <div class="space-y-2 text-center">
+        <img src="${rawDataUrl}" class="max-h-[55vh] mx-auto rounded-2xl border border-slate-200 object-contain" />
+      </div>
+    `;
   }
 
   window.openUserPlanViewer = function (uid) {
@@ -423,32 +447,11 @@
       ? `Archivo: ${storedMeta.fileName} · Subido el ${storedMeta.uploadedAt}`
       : `Configuración activa (${prof.dailyTarget.kcal} kcal/día)`;
 
-    let fileViewerHtml = "";
-    if (rawDataUrl) {
-      if (rawDataUrl.startsWith("data:application/pdf")) {
-        fileViewerHtml = `
-          <div class="space-y-2">
-            <div class="flex justify-end">
-              <a href="${rawDataUrl}" download="Plan_${prof.name}.pdf"
-                class="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-extrabold">⬇️ Descargar PDF Original</a>
-            </div>
-            <iframe src="${rawDataUrl}" class="w-full h-[55vh] rounded-2xl border border-slate-200"></iframe>
-          </div>
-        `;
-      } else {
-        fileViewerHtml = `
-          <div class="space-y-2 text-center">
-            <img src="${rawDataUrl}" class="max-h-[55vh] mx-auto rounded-2xl border border-slate-200 object-contain" />
-          </div>
-        `;
-      }
-    } else {
-      fileViewerHtml = `
-        <div class="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-          ℹ️ Aún no se ha adjuntado un archivo PDF/foto original para <b>${prof.name}</b> desde este dispositivo (solo están cargados los datos numéricos). Cuando subas el PDF en el importador superior, se guardará aquí para verlo siempre.
-        </div>
-      `;
-    }
+    const fileViewerHtml = rawDataUrl
+      ? buildDocumentEmbedHtml(rawDataUrl, `Plan_${prof.name}`)
+      : `<div class="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+          ℹ️ Aún no se ha adjuntado un archivo PDF/foto original para <b>${prof.name}</b> desde este dispositivo. Cuando subas el PDF en el importador superior, se guardará aquí para verlo siempre.
+        </div>`;
 
     const slotsSummaryHtml = (prof.slots || [])
       .map(
@@ -473,7 +476,6 @@
     document.getElementById("planViewerModal").classList.remove("hidden");
   };
 
-  // Sobrescribir importNutritionistPlanWithAI para guardar el PDF visualizable por usuario
   window.importNutritionistPlanWithAI = async function () {
     const targetUserId = document.getElementById("importTargetUserSelect").value;
     const fileInput = document.getElementById("planFileInput");
@@ -488,7 +490,7 @@
 
     btn.disabled = true;
     btn.textContent = "⏳ Analizando plan nutricional...";
-    statusEl.textContent = "Extrayendo calorías, macros, tomas y platos base con Gemini AI...";
+    statusEl.textContent = "Extrayendo calorías, macros, tomas y platos base con Gemini 3.8...";
 
     try {
       let inlineData = null;
@@ -498,7 +500,6 @@
         const base64 = dataUrl.split(",")[1];
         inlineData = { mimeType: file.type || "application/pdf", data: base64 };
 
-        // Guardar archivo para visualización posterior en Ajustes
         try {
           localStorage.setItem(PDF_STORAGE_PREFIX + targetUserId, dataUrl);
         } catch (e) {
@@ -611,7 +612,6 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
     const viewSettings = document.getElementById("view-settings");
     if (!viewSettings) return;
 
-    // 1. Caja de PDFs Imprimibles + Visor de Planes Subidos (Nando y Noelia)
     let extrasBox = document.getElementById("settingsPdfAndViewerCard");
     if (!extrasBox) {
       extrasBox = document.createElement("div");
@@ -668,7 +668,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   }
 
   // --------------------------------------------------------------------------
-  // 5. PESTAÑA REVISIÓN CLÍNICA: PRECARGA INFORME 17-11-26 + IMPORTADOR PDF IA
+  // 5. PESTAÑA REVISIÓN CLÍNICA + VISOR DEL PDF DE CADA REVISIÓN
   // --------------------------------------------------------------------------
   function ensurePreloadedFernandoReport() {
     if (!window.state) return;
@@ -706,6 +706,87 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       if (typeof window.saveState === "function") window.saveState(true);
     }
   }
+
+  function getClinicalPdfDataUrl(rec) {
+    if (!rec) return "";
+    return localStorage.getItem(`${CLIN_PDF_PREFIX}${rec.userId}_${rec.dateIso}`) || rec.pdfDataUrl || "";
+  }
+
+  window.openClinicalPdfViewer = function (recId) {
+    const rec = (state.clinical || []).find((r) => r.id === recId);
+    if (!rec) return;
+    ensurePlanViewerModal();
+
+    const prof = state.profiles[rec.userId] || state.profiles.nando;
+    const rawDataUrl = getClinicalPdfDataUrl(rec);
+
+    document.getElementById("planViewerTitle").textContent = `🩺 Informe de Revisión — ${prof.name} (${formatIsoShort(rec.dateIso)})`;
+    document.getElementById("planViewerSubtitle").textContent = rec.pdfFileName
+      ? `Documento: ${rec.pdfFileName}`
+      : `Registro antropométrico (${rec.formula || "Control clínico"})`;
+
+    const fileEmbedHtml = rawDataUrl
+      ? buildDocumentEmbedHtml(rawDataUrl, `Revision_${prof.name}_${rec.dateIso}`)
+      : `<div class="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+          ℹ️ Esta revisión tiene los datos numéricos cargados pero aún no tiene el PDF original adjunto en este dispositivo. Puedes adjuntarlo pulsando <b>📎 Adjuntar PDF</b> en su fila de la tabla.
+        </div>`;
+
+    const sf = rec.skinfolds;
+    const sfCard = sf
+      ? `<div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+          <div class="font-extrabold text-slate-800 mb-1">📐 Pliegues Cutáneos (mm):</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
+            <span>Pecho: <b>${sf.chest ?? "-"}</b></span>
+            <span>Axilar: <b>${sf.midaxilla ?? "-"}</b></span>
+            <span>Abdominal: <b>${sf.abdominal ?? "-"}</b></span>
+            <span>Suprailíaco: <b>${sf.suprailiac ?? "-"}</b></span>
+            <span>Muslo: <b>${sf.thigh ?? "-"}</b></span>
+            <span>Subescapular: <b>${sf.subscapular ?? "-"}</b></span>
+            <span>Tríceps: <b>${sf.tricep ?? "-"}</b></span>
+          </div>
+        </div>`
+      : "";
+
+    document.getElementById("planViewerContent").innerHTML = `
+      ${fileEmbedHtml}
+      <div class="grid grid-cols-3 gap-2 pt-1 text-center">
+        <div class="p-2 rounded-xl bg-slate-50 border border-slate-200">
+          <span class="text-[10px] font-bold text-slate-500 block">Peso</span>
+          <span class="text-sm font-extrabold text-slate-900">${rec.weight ? rec.weight + " kg" : "-"}</span>
+        </div>
+        <div class="p-2 rounded-xl bg-amber-50 border border-amber-200">
+          <span class="text-[10px] font-bold text-amber-700 block">% Grasa</span>
+          <span class="text-sm font-extrabold text-amber-900">${rec.fatPct ? rec.fatPct + "%" : "-"} ${rec.fatKg ? `(${rec.fatKg} kg)` : ""}</span>
+        </div>
+        <div class="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
+          <span class="text-[10px] font-bold text-emerald-700 block">Masa Magra</span>
+          <span class="text-sm font-extrabold text-emerald-900">${rec.muscleKg ? rec.muscleKg + " kg" : "-"}</span>
+        </div>
+      </div>
+      ${sfCard}
+    `;
+
+    document.getElementById("planViewerModal").classList.remove("hidden");
+  };
+
+  window.attachPdfToClinicalRecord = async function (recId, inputEl) {
+    if (!inputEl.files || inputEl.files.length === 0) return;
+    const rec = (state.clinical || []).find((r) => r.id === recId);
+    if (!rec) return;
+
+    const file = inputEl.files[0];
+    const dataUrl = await readFileAsDataUrl(file);
+    try {
+      localStorage.setItem(`${CLIN_PDF_PREFIX}${rec.userId}_${rec.dateIso}`, dataUrl);
+    } catch (e) {
+      console.warn("PDF grande para localStorage:", e);
+    }
+    rec.pdfFileName = file.name;
+    rec.pdfDataUrl = dataUrl.length < 1800000 ? dataUrl : "";
+    saveState(true);
+    renderClinicalTab();
+    openClinicalPdfViewer(recId);
+  };
 
   window.importClinicalReportWithAI = async function () {
     const userId = document.getElementById("clinUserSelect")?.value || "nando";
@@ -761,7 +842,12 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       const parsed = extractCleanJSON(raw);
 
       const dateIso = parsed.dateIso || getTodayIso();
-      // Si ya existía medición en esa fecha para ese usuario, actualizarla; si no, añadir nueva
+      try {
+        localStorage.setItem(`${CLIN_PDF_PREFIX}${userId}_${dateIso}`, dataUrl);
+      } catch (e) {
+        console.warn("Archivo grande para localStorage:", e);
+      }
+
       const existingIdx = (state.clinical || []).findIndex((r) => r.userId === userId && r.dateIso === dateIso);
       const recordObj = {
         id: existingIdx >= 0 ? state.clinical[existingIdx].id : Date.now(),
@@ -780,7 +866,9 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         bicepsR: parsed.bicepsR ?? null,
         quadL: parsed.quadL ?? null,
         quadR: parsed.quadR ?? null,
-        skinfolds: parsed.skinfolds || null
+        skinfolds: parsed.skinfolds || null,
+        pdfFileName: file.name,
+        pdfDataUrl: dataUrl.length < 1800000 ? dataUrl : ""
       };
 
       if (existingIdx >= 0) {
@@ -792,7 +880,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       fileInput.value = "";
       saveState(true);
       renderClinicalTab();
-      alert(`✅ Informe de revisión del ${formatIsoShort(dateIso)} cargado correctamente.`);
+      alert(`✅ Informe de revisión del ${formatIsoShort(dateIso)} cargado y guardado para visualizar.`);
     } catch (err) {
       alert(`⚠️ Error al analizar informe: ${err.message}`);
     } finally {
@@ -815,7 +903,6 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
     const dateInp = document.getElementById("clinDateInput");
     if (!dateInp.value) dateInp.value = getTodayIso();
 
-    // Inyectar barra de importación PDF del informe de revisión
     const clinSection = document.getElementById("view-clinical");
     if (clinSection && !document.getElementById("clinPdfImportBar")) {
       const formBox = clinSection.querySelector(".bg-slate-50");
@@ -827,7 +914,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         importBar.innerHTML = `
           <div class="min-w-0">
             <span class="text-xs font-extrabold text-indigo-950 block">📄 Subir Informe de Revisión del Nutricionista (PDF o Foto)</span>
-            <span class="text-[10.5px] text-indigo-800">Extrae automáticamente Peso, % Grasa, Masa Magra (LBM), Pliegues y Perímetros.</span>
+            <span class="text-[10.5px] text-indigo-800">Extrae automáticamente Peso, % Grasa, Masa Magra (LBM), Pliegues y Perímetros, y guarda el PDF para verlo.</span>
           </div>
           <div class="flex items-center gap-1.5 flex-wrap">
             <input type="file" id="clinReportFileInput" accept=".pdf,image/*"
@@ -861,7 +948,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
             <th class="p-2">Masa Magra (LBM)</th>
             <th class="p-2">Pliegues (mm) / Perímetros (cm)</th>
             <th class="p-2">Pasos/día</th>
-            <th class="p-2 rounded-tr-xl"></th>
+            <th class="p-2 rounded-tr-xl text-right">Documento</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200">
@@ -877,6 +964,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
                   ? `Cint ${r.waist || "-"} · Cad ${r.hip || "-"} · Bíc ${r.bicepsL || "-"}/${r.bicepsR || "-"} · Cuád ${r.quadL || "-"}/${r.quadR || "-"}`
                   : "";
               const detailLine = [sfText, perimText].filter(Boolean).join(" | ") || "-";
+              const hasPdf = !!getClinicalPdfDataUrl(r);
 
               return `
               <tr class="hover:bg-slate-50">
@@ -887,8 +975,16 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
                 <td class="p-2 font-extrabold text-emerald-700 whitespace-nowrap">${r.muscleKg ? r.muscleKg + " kg" : "-"}</td>
                 <td class="p-2 text-[11px] text-slate-600">${detailLine}</td>
                 <td class="p-2 font-bold whitespace-nowrap">${r.steps ? Number(r.steps).toLocaleString("es-ES") : "-"}</td>
-                <td class="p-2 text-right">
-                  <button onclick="deleteClinicalRecord(${r.id})" class="text-rose-600 font-bold hover:underline">🗑️</button>
+                <td class="p-2 text-right whitespace-nowrap space-x-1">
+                  ${
+                    hasPdf
+                      ? `<button onclick="openClinicalPdfViewer(${r.id})" class="px-2 py-1 rounded-lg bg-slate-900 text-white text-[10.5px] font-extrabold">👁️ Ver PDF</button>`
+                      : `<label class="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-900 text-[10.5px] font-extrabold cursor-pointer inline-block">
+                          📎 Adjuntar PDF
+                          <input type="file" accept=".pdf,image/*" onchange="attachPdfToClinicalRecord(${r.id}, this)" class="hidden" />
+                        </label>`
+                  }
+                  <button onclick="deleteClinicalRecord(${r.id})" class="text-rose-600 font-bold hover:underline px-1">🗑️</button>
                 </td>
               </tr>
             `;
@@ -897,103 +993,6 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         </tbody>
       </table>
     `;
-  };
-
-  window.printClinicalReviewPDF = function () {
-    const targetUid = document.getElementById("clinUserSelect")?.value || "nando";
-    const prof = state.profiles[targetUid];
-    const clinRows = (state.clinical || [])
-      .filter((r) => r.userId === targetUid)
-      .sort((a, b) => b.dateIso.localeCompare(a.dateIso))
-      .slice(0, 14);
-    const devRows = (state.deviations || []).filter((d) => d.userId === targetUid).slice(0, 12);
-
-    const w = window.open("", "_blank");
-    w.document.write(`
-      <!DOCTYPE html>
-      <html lang="es">
-      <head>
-        <meta charset="UTF-8">
-        <title>Informe Revisión Nutricionista — ${prof.name}</title>
-        <style>
-          @page { size: A4 portrait; margin: 8mm 10mm; }
-          * { box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; font-size: 9.5px; }
-          h1 { font-size: 14.5px; color: #065f46; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin: 0 0 6px 0; }
-          h2 { font-size: 11px; background: #f1f5f9; padding: 4px 8px; border-left: 3px solid #0f172a; margin: 8px 0 4px 0; }
-          table { width: 100%; border-collapse: collapse; font-size: 9px; }
-          th, td { border: 1px solid #cbd5e1; padding: 4px 5px; text-align: left; }
-          th { background: #0f172a; color: white; }
-        </style>
-      </head>
-      <body>
-        <h1>🩺 INFORME DE REVISIÓN NUTRICIONAL — ${prof.name.toUpperCase()} (${prof.dailyTarget.kcal} kcal/día)</h1>
-        <p style="margin:0 0 6px 0;"><b>Objetivo Macros:</b> ${prof.dailyTarget.p}g Proteína · ${prof.dailyTarget.hc}g Hidratos · ${prof.dailyTarget.g}g Grasas</p>
-
-        <h2>1. Composición Corporal, Pliegues y Perímetros</h2>
-        <table>
-          <thead>
-            <tr><th>Fecha</th><th>Peso</th><th>% Grasa (kg)</th><th>Masa Magra</th><th>Pliegues (mm) / Perímetros (cm)</th><th>Pasos/día</th></tr>
-          </thead>
-          <tbody>
-            ${
-              clinRows.length === 0
-                ? '<tr><td colspan="6">Sin mediciones registradas</td></tr>'
-                : clinRows
-                    .map((r) => {
-                      const sf = r.skinfolds
-                        ? `Pec ${r.skinfolds.chest ?? "-"}, Ax ${r.skinfolds.midaxilla ?? "-"}, Abd ${r.skinfolds.abdominal ?? "-"}, Sup ${r.skinfolds.suprailiac ?? "-"}, Mus ${r.skinfolds.thigh ?? "-"}, Sub ${r.skinfolds.subscapular ?? "-"}, Tri ${r.skinfolds.tricep ?? "-"}`
-                        : "";
-                      const per =
-                        r.waist || r.bicepsL || r.quadL
-                          ? `Cint ${r.waist || "-"}cm, Bíc ${r.bicepsL || "-"}/${r.bicepsR || "-"}cm, Cuád ${r.quadL || "-"}/${r.quadR || "-"}cm`
-                          : "";
-                      return `
-                      <tr>
-                        <td><b>${formatIsoShort(r.dateIso)}</b></td>
-                        <td><b>${r.weight || "-"} kg</b></td>
-                        <td>${r.fatPct ? r.fatPct + "%" : "-"} ${r.fatKg ? `(${r.fatKg} kg)` : ""}</td>
-                        <td><b>${r.muscleKg ? r.muscleKg + " kg" : "-"}</b></td>
-                        <td>${[sf, per].filter(Boolean).join(" | ") || "-"}</td>
-                        <td>${r.steps || "-"}</td>
-                      </tr>
-                    `;
-                    })
-                    .join("")
-            }
-          </tbody>
-        </table>
-
-        <h2>2. Registro de Desfases / Ingestas Fuera de Plan</h2>
-        <table>
-          <thead>
-            <tr><th>Fecha</th><th>Toma</th><th>Tipo</th><th>Descripción</th><th>Estimación IA</th></tr>
-          </thead>
-          <tbody>
-            ${
-              devRows.length === 0
-                ? '<tr><td colspan="5">Sin desfases registrados</td></tr>'
-                : devRows
-                    .map(
-                      (d) => `
-                <tr>
-                  <td><b>${formatIsoShort(d.dateIso)}</b></td>
-                  <td>${d.slotId}</td>
-                  <td>${d.mode === "replace" ? "Sustituye toma" : "Extra añadido"}</td>
-                  <td>${d.text}</td>
-                  <td><b>${d.macros.kcal} kcal</b> (${d.macros.p}P / ${d.macros.hc}HC / ${d.macros.g}G)</td>
-                </tr>
-              `
-                    )
-                    .join("")
-            }
-          </tbody>
-        </table>
-        <script>window.onload = () => window.print();<\/script>
-      </body>
-      </html>
-    `);
-    w.document.close();
   };
 
   // --------------------------------------------------------------------------
