@@ -1,6 +1,6 @@
 // ============================================================================
-// mejora.js — v2.6 (Extracción Rápida PDF.js + Gemini 3.8 Flash Fast +
-// Visor Documentos + Vista Semanal Comidas/Cenas + Barra Inferior Elevada)
+// mejora.js — v2.7 (Gemini 3.8 Flash Instantáneo thinkingBudget:0 +
+// Importación JSON Protegida + Visor PDFs + Vista Semanal Comidas/Cenas)
 // ============================================================================
 
 (function () {
@@ -124,13 +124,13 @@
       }
       return fullText.trim();
     } catch (e) {
-      console.warn("Extracción local PDF omitida, se usará envío directo:", e);
+      console.warn("Extracción local PDF omitida:", e);
       return "";
     }
   }
 
   // --------------------------------------------------------------------------
-  // 3. BLINDAJE API KEY + GEMINI 3.8 FLASH EN MODO RÁPIDO (THINKING LOW)
+  // 3. BLINDAJE API KEY + GEMINI 3.8 FLASH SIN RAZONAMIENTO PESADO
   // --------------------------------------------------------------------------
   function getResolvedGeminiKey() {
     const fromState = (state?.settings?.geminiApiKey || "").trim();
@@ -191,6 +191,36 @@
       };
     }
 
+    // Proteger credenciales de nube y API Key al importar archivo JSON generado
+    window.importBackupJSON = function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const imported = JSON.parse(reader.result);
+          const currentKey = getResolvedGeminiKey();
+          const currentDbUrl = (state?.settings?.firebaseDbUrl || "").trim();
+          const currentRoom = (state?.settings?.firebaseRoom || "hogar_nando_noelia").trim();
+          const currentActiveView = state?.settings?.activeViewProfile || "nando";
+
+          state = Object.assign({}, state, imported);
+          if (!state.settings) state.settings = {};
+          if (currentKey && !state.settings.geminiApiKey) state.settings.geminiApiKey = currentKey;
+          if (currentDbUrl && !state.settings.firebaseDbUrl) state.settings.firebaseDbUrl = currentDbUrl;
+          if (currentRoom && !state.settings.firebaseRoom) state.settings.firebaseRoom = currentRoom;
+          state.settings.activeViewProfile = currentActiveView;
+
+          saveState(true);
+          renderAll();
+          alert("✅ Plan y datos importados correctamente y sincronizados.");
+        } catch (err) {
+          alert("⚠️ Archivo JSON no válido: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+    };
+
     window.callGeminiAPI = async function (promptText, options = {}) {
       const apiKey = getResolvedGeminiKey();
       if (!apiKey) {
@@ -202,27 +232,29 @@
         parts.push({ inlineData: options.inlineData });
       }
 
+      // Solo gemini-3.8-flash con thinkingBudget: 0 para evitar latencia alta y modelos retirados
       const attempts = [
         {
           model: "gemini-3.8-flash",
-          genConfig: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "LOW" } }
+          genConfig: {
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 0 }
+          }
         },
         {
           model: "gemini-3.8-flash",
-          genConfig: { responseMimeType: "application/json" }
-        },
-        {
-          model: "gemini-2.5-flash",
-          genConfig: { responseMimeType: "application/json" }
+          genConfig: {
+            responseMimeType: "application/json"
+          }
         }
       ];
 
-      let lastError = null;
+      let firstError = null;
 
       for (let i = 0; i < attempts.length; i++) {
         const { model, genConfig } = attempts[i];
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 75000);
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
 
         try {
           const resp = await fetch(
@@ -242,8 +274,9 @@
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
             const msg = errData?.error?.message || `Error HTTP ${resp.status}`;
-            lastError = new Error(msg);
-            if (resp.status === 400 && /API key not valid/i.test(msg)) throw lastError;
+            const errObj = new Error(msg);
+            if (!firstError) firstError = errObj;
+            if (resp.status === 400 && /API key not valid/i.test(msg)) throw errObj;
             continue;
           }
 
@@ -253,14 +286,15 @@
           return rawText;
         } catch (err) {
           clearTimeout(timeoutId);
-          lastError =
+          const cleanErr =
             err.name === "AbortError"
-              ? new Error("Tiempo de espera agotado (75s). Comprueba tu conexión e inténtalo de nuevo.")
+              ? new Error("Tiempo de espera agotado (45s). Puedes enviarme el PDF al chat para cargarlo en 1 segundo.")
               : err;
-          if (/API key not valid/i.test(lastError.message || "")) break;
+          if (!firstError) firstError = cleanErr;
+          if (/API key not valid/i.test(cleanErr.message || "")) break;
         }
       }
-      throw lastError || new Error("No se pudo conectar con Gemini API.");
+      throw firstError || new Error("No se pudo conectar con Gemini 3.8 Flash.");
     };
 
     // Creador de platos rápido con Gemini 3.8 Flash
@@ -291,7 +325,7 @@
 
       try {
         const prompt = `
-Eres nutricionista deportivo y chef ejecutivo. Crea una receta real, sabrosa y práctica usando estos ingredientes disponibles: "${ingsText}".
+Eres nutricionista deportivo y chef ejecutivo. Crea una receta real y sabrosa con estos ingredientes disponibles: "${ingsText}".
 Preferencia: "${stylePref || "Sabrosa, jugosa y rápida"}".
 
 OBJETIVOS NUTRICIONALES DE ESTA TOMA (${slotNoe.name}):
@@ -299,7 +333,7 @@ OBJETIVOS NUTRICIONALES DE ESTA TOMA (${slotNoe.name}):
 - Noelia: ${slotNoe.target.kcal} kcal (${slotNoe.target.p}g P, ${slotNoe.target.hc}g HC, ${slotNoe.target.g}g G). Restricciones: ${state.profiles.noelia.restrictions}.
 
 REGLAS:
-1. Calcula los gramos/ml/unidades exactos en crudo de cada ingrediente para clavar los macros de Nando y Noelia.
+1. Calcula los gramos/ml/unidades exactos en crudo de cada ingrediente para cumplir los macros de Nando y Noelia.
 2. Si falta algún macronutriente clave o aderezo, añade el complemento necesario (ej. AOVE, patata, arroz, especias sin cebolla/ajo).
 3. Redacta pasos breves y directos usando exclusivamente estos electrodomésticos: ${activeApps}.
 
@@ -580,7 +614,7 @@ Devuelve ÚNICAMENTE un JSON válido:
   };
 
   // --------------------------------------------------------------------------
-  // 5. MODAL VISOR UNIVERSAL DE DOCUMENTOS + IMPORTADOR ULTRA-RÁPIDO PDF
+  // 5. MODAL VISOR UNIVERSAL DE DOCUMENTOS + IMPORTADOR PDF
   // --------------------------------------------------------------------------
   function ensurePlanViewerModal() {
     if (document.getElementById("planViewerModal")) return;
@@ -637,7 +671,7 @@ Devuelve ÚNICAMENTE un JSON válido:
     const fileViewerHtml = rawDataUrl
       ? buildDocumentEmbedHtml(rawDataUrl, `Plan_${prof.name}`)
       : `<div class="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-          ℹ️ Aún no se ha adjuntado un archivo PDF/foto original para <b>${prof.name}</b> desde este dispositivo. Cuando subas el PDF en el importador superior, se guardará aquí para verlo siempre.
+          ℹ️ Aún no se ha adjuntado un archivo PDF/foto original para <b>${prof.name}</b> desde este dispositivo.
         </div>`;
 
     const slotsSummaryHtml = (prof.slots || [])
@@ -683,11 +717,8 @@ Devuelve ÚNICAMENTE un JSON válido:
 
     try {
       let dataUrl = "";
-      let fileName = state.uploadedPlans?.[targetUserId]?.fileName || "Plan_Nutricional.pdf";
-
       if (fileInput.files && fileInput.files.length > 0) {
         const file = fileInput.files[0];
-        fileName = file.name;
         dataUrl = await readFileAsDataUrl(file);
         try {
           localStorage.setItem(PDF_STORAGE_PREFIX + targetUserId, dataUrl);
@@ -704,7 +735,6 @@ Devuelve ÚNICAMENTE un JSON válido:
         dataUrl = existingStoredDataUrl;
       }
 
-      // 1. Extraer texto localmente si es PDF (tarda < 0.5s y evita enviar megabytes de imágenes a la API)
       statusEl.textContent = "📄 Extrayendo texto del documento...";
       let extractedDocText = "";
       let inlineData = null;
@@ -713,38 +743,37 @@ Devuelve ÚNICAMENTE un JSON válido:
         if (dataUrl.startsWith("data:application/pdf")) {
           extractedDocText = await extractTextFromPdfDataUrl(dataUrl);
         }
-        // Solo enviar binario si no es PDF con texto extraíble (por ejemplo una fotografía)
         if (!extractedDocText || extractedDocText.length < 80) {
           const mimeType = dataUrl.substring(dataUrl.indexOf(":") + 1, dataUrl.indexOf(";")) || "application/pdf";
           inlineData = { mimeType, data: dataUrl.split(",")[1] };
         }
       }
 
-      statusEl.textContent = "⚡ Estructurando macros, tomas y platos con Gemini 3.8...";
+      statusEl.textContent = "⚡ Estructurando macros, tomas y platos...";
       btn.textContent = "⚡ Procesando IA...";
 
-      const combinedContent = [rawText, extractedDocText ? extractedDocText.slice(0, 14000) : ""]
+      const combinedContent = [rawText, extractedDocText ? extractedDocText.slice(0, 12000) : ""]
         .filter(Boolean)
         .join("\n\n");
 
       const profileName = state.profiles[targetUserId].name;
       const prompt = `
 Analiza este plan nutricional de "${profileName}".
-Contenido del plan:
+Contenido:
 """
 ${combinedContent}
 """
 
-Extrae de forma directa y concisa:
-1. Objetivo calórico y de macronutrientes diarios (kcal, proteínas g, hidratos g, grasas g).
-2. Restricciones digestivas, alergias o alimentos a evitar.
-3. Todas las tomas diarias configuradas en la dieta (ej. Desayuno, Media Mañana, Almuerzo, Merienda, Cena, Comodín) con sus calorías y macros aproximados por toma.
-4. Hasta 10 platos principales del plan con sus ingredientes y pesos exactos en crudo.
+Extrae de forma directa:
+1. Objetivo calórico y macros diarios (kcal, p, hc, g).
+2. Restricciones digestivas o alimentos a evitar.
+3. Tomas diarias configuradas (id, name, icon, isMainMeal, target).
+4. Hasta 8 platos principales del plan con sus ingredientes y pesos exactos en crudo.
 
 Devuelve ÚNICAMENTE un JSON válido:
 {
   "dailyTarget": { "kcal": 1600, "p": 136, "hc": 158, "g": 40 },
-  "restrictions": "Texto resumen de exclusiones o tolerancias",
+  "restrictions": "Texto resumen",
   "slots": [
     { "id": "desayuno", "name": "Desayuno", "icon": "☕", "isMainMeal": false, "target": { "kcal": 300, "p": 20, "hc": 30, "g": 10 } },
     { "id": "almuerzo", "name": "Almuerzo", "icon": "🍽️", "isMainMeal": true, "target": { "kcal": 511, "p": 48, "hc": 44, "g": 13 } }
@@ -752,7 +781,7 @@ Devuelve ÚNICAMENTE un JSON válido:
   "extractedDishes": [
     {
       "slotId": "almuerzo",
-      "title": "Nombre del plato extraído",
+      "title": "Nombre del plato",
       "macros": { "kcal": 511, "p": 48, "hc": 44, "g": 13 },
       "ingredients": [
         { "name": "Pollo", "category": "Carnicería y Pescadería", "unit": "g", "qty": 200 }
