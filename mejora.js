@@ -1,6 +1,6 @@
 // ============================================================================
-// mejora.js — v2.5 (Gemini 4 Hydrogen en Toda la App: Recetas, PDFs, Desfases
-// y Revisión Clínica + Visor Documentos + Vista Semanal Comidas/Cenas)
+// mejora.js — v2.6 (Extracción Rápida PDF.js + Gemini 3.8 Flash Fast +
+// Visor Documentos + Vista Semanal Comidas/Cenas + Barra Inferior Elevada)
 // ============================================================================
 
 (function () {
@@ -81,7 +81,56 @@
   }
 
   // --------------------------------------------------------------------------
-  // 2. BLINDAJE API KEY + GEMINI 4 HYDROGEN (THINKING LOW GLOBAL)
+  // 2. EXTRACCIÓN RÁPIDA DE TEXTO PDF EN EL NAVEGADOR (PDF.JS)
+  // --------------------------------------------------------------------------
+  function loadPdfJsLibrary() {
+    return new Promise((resolve, reject) => {
+      if (window.pdfjsLib) return resolve(window.pdfjsLib);
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      script.onload = () => {
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          resolve(window.pdfjsLib);
+        } else {
+          reject(new Error("No se pudo inicializar PDF.js"));
+        }
+      };
+      script.onerror = () => reject(new Error("Error cargando lector PDF"));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function extractTextFromPdfDataUrl(dataUrl) {
+    try {
+      if (!dataUrl || !dataUrl.startsWith("data:application/pdf")) return "";
+      const pdfjs = await loadPdfJsLibrary();
+      const base64 = dataUrl.split(",")[1];
+      const binaryStr = atob(base64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+      const pdfDoc = await pdfjs.getDocument({ data: bytes }).promise;
+      const maxPages = Math.min(pdfDoc.numPages, 15);
+      let fullText = "";
+
+      for (let p = 1; p <= maxPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const textContent = await page.getTextContent();
+        const pageStr = textContent.items.map((item) => item.str).join(" ");
+        fullText += `\n--- PÁGINA ${p} ---\n${pageStr}`;
+      }
+      return fullText.trim();
+    } catch (e) {
+      console.warn("Extracción local PDF omitida, se usará envío directo:", e);
+      return "";
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 3. BLINDAJE API KEY + GEMINI 3.8 FLASH EN MODO RÁPIDO (THINKING LOW)
   // --------------------------------------------------------------------------
   function getResolvedGeminiKey() {
     const fromState = (state?.settings?.geminiApiKey || "").trim();
@@ -153,31 +202,38 @@
         parts.push({ inlineData: options.inlineData });
       }
 
-      const body = {
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          thinkingConfig: {
-            thinkingLevel: "LOW"
-          }
+      const attempts = [
+        {
+          model: "gemini-3.8-flash",
+          genConfig: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "LOW" } }
+        },
+        {
+          model: "gemini-3.8-flash",
+          genConfig: { responseMimeType: "application/json" }
+        },
+        {
+          model: "gemini-2.5-flash",
+          genConfig: { responseMimeType: "application/json" }
         }
-      };
+      ];
 
-      const modelsToTry = ["gemini-4-hydrogen", "gemini-3.8-flash"];
-      let primaryError = null;
+      let lastError = null;
 
-      for (let i = 0; i < modelsToTry.length; i++) {
-        const modelName = modelsToTry[i];
+      for (let i = 0; i < attempts.length; i++) {
+        const { model, genConfig } = attempts[i];
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 55000);
+        const timeoutId = setTimeout(() => controller.abort(), 75000);
 
         try {
           const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
+              body: JSON.stringify({
+                contents: [{ role: "user", parts }],
+                generationConfig: genConfig
+              }),
               signal: controller.signal
             }
           );
@@ -186,12 +242,9 @@
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
             const msg = errData?.error?.message || `Error HTTP ${resp.status}`;
-            const errObj = new Error(msg);
-            if (!primaryError) primaryError = errObj;
-            if ((resp.status === 404 || resp.status === 429) && i < modelsToTry.length - 1) {
-              continue;
-            }
-            throw errObj;
+            lastError = new Error(msg);
+            if (resp.status === 400 && /API key not valid/i.test(msg)) throw lastError;
+            continue;
           }
 
           const data = await resp.json();
@@ -200,18 +253,17 @@
           return rawText;
         } catch (err) {
           clearTimeout(timeoutId);
-          const cleanErr =
+          lastError =
             err.name === "AbortError"
-              ? new Error("Tiempo de espera agotado (55s). Comprueba tu conexión o intenta de nuevo.")
+              ? new Error("Tiempo de espera agotado (75s). Comprueba tu conexión e inténtalo de nuevo.")
               : err;
-          if (!primaryError) primaryError = cleanErr;
-          if (i === modelsToTry.length - 1) throw primaryError;
+          if (/API key not valid/i.test(lastError.message || "")) break;
         }
       }
-      throw primaryError || new Error("No se pudo conectar con Gemini API.");
+      throw lastError || new Error("No se pudo conectar con Gemini API.");
     };
 
-    // Optimizar también el Creador de Platos para que use prompt directo con Gemini 4 Hydrogen
+    // Creador de platos rápido con Gemini 3.8 Flash
     window.generateAIRecipe = async function () {
       const ingsText = document.getElementById("aiRecipeIngredientsInput").value.trim();
       if (!ingsText) {
@@ -233,9 +285,9 @@
       const slotNan = state.profiles.nando.slots.find((s) => s.id === slotId) || state.profiles.nando.slots[1];
 
       btn.disabled = true;
-      btn.textContent = "⚡ Calculando con Hydrogen...";
+      btn.textContent = "⚡ Calculando receta...";
       resBox.classList.remove("hidden");
-      resBox.innerHTML = `<div class="text-xs font-bold text-emerald-700 animate-pulse">⚡ Gemini 4 Hydrogen calculando gramos exactos y adaptando tiempos a tus equipos...</div>`;
+      resBox.innerHTML = `<div class="text-xs font-bold text-emerald-700 animate-pulse">⚡ Calculando gramos exactos y adaptando tiempos a tus equipos...</div>`;
 
       try {
         const prompt = `
@@ -334,7 +386,7 @@ Devuelve ÚNICAMENTE un JSON válido:
   }
 
   // --------------------------------------------------------------------------
-  // 3. PESTAÑA PLAN: SOLO ALMUERZOS Y CENAS EN VISTA SEMANA + SIN BOTONES PDF
+  // 4. PESTAÑA PLAN: SOLO ALMUERZOS Y CENAS EN VISTA SEMANA + SIN BOTONES PDF
   // --------------------------------------------------------------------------
   function hidePdfButtonsInPlanner() {
     const btnMeals = document.querySelector('#view-planner button[onclick="printMealsPDF()"]');
@@ -528,7 +580,7 @@ Devuelve ÚNICAMENTE un JSON válido:
   };
 
   // --------------------------------------------------------------------------
-  // 4. MODAL VISOR UNIVERSAL DE DOCUMENTOS (PLANES Y REVISIONES CLÍNICAS)
+  // 5. MODAL VISOR UNIVERSAL DE DOCUMENTOS + IMPORTADOR ULTRA-RÁPIDO PDF
   // --------------------------------------------------------------------------
   function ensurePlanViewerModal() {
     if (document.getElementById("planViewerModal")) return;
@@ -618,23 +670,25 @@ Devuelve ÚNICAMENTE un JSON válido:
     const statusEl = document.getElementById("importPlanStatusMsg");
     const btn = document.getElementById("btnImportPlanAI");
 
-    if ((!fileInput.files || fileInput.files.length === 0) && !rawText) {
+    const existingStoredDataUrl =
+      localStorage.getItem(PDF_STORAGE_PREFIX + targetUserId) || state.uploadedPlans?.[targetUserId]?.dataUrl || "";
+
+    if ((!fileInput.files || fileInput.files.length === 0) && !rawText && !existingStoredDataUrl) {
       alert("Sube el PDF/imagen de tu plan nutricional o pega el texto.");
       return;
     }
 
     btn.disabled = true;
-    btn.textContent = "⚡ Analizando con Hydrogen...";
-    statusEl.textContent = "⚡ Extrayendo calorías, macros, tomas y platos con Gemini 4 Hydrogen...";
+    btn.textContent = "⚡ Leyendo PDF...";
 
     try {
-      let inlineData = null;
+      let dataUrl = "";
+      let fileName = state.uploadedPlans?.[targetUserId]?.fileName || "Plan_Nutricional.pdf";
+
       if (fileInput.files && fileInput.files.length > 0) {
         const file = fileInput.files[0];
-        const dataUrl = await readFileAsDataUrl(file);
-        const base64 = dataUrl.split(",")[1];
-        inlineData = { mimeType: file.type || "application/pdf", data: base64 };
-
+        fileName = file.name;
+        dataUrl = await readFileAsDataUrl(file);
         try {
           localStorage.setItem(PDF_STORAGE_PREFIX + targetUserId, dataUrl);
         } catch (e) {
@@ -646,34 +700,62 @@ Devuelve ÚNICAMENTE un JSON válido:
           uploadedAt: new Date().toLocaleDateString("es-ES"),
           dataUrl: dataUrl.length < 1800000 ? dataUrl : ""
         };
+      } else if (existingStoredDataUrl) {
+        dataUrl = existingStoredDataUrl;
       }
+
+      // 1. Extraer texto localmente si es PDF (tarda < 0.5s y evita enviar megabytes de imágenes a la API)
+      statusEl.textContent = "📄 Extrayendo texto del documento...";
+      let extractedDocText = "";
+      let inlineData = null;
+
+      if (dataUrl) {
+        if (dataUrl.startsWith("data:application/pdf")) {
+          extractedDocText = await extractTextFromPdfDataUrl(dataUrl);
+        }
+        // Solo enviar binario si no es PDF con texto extraíble (por ejemplo una fotografía)
+        if (!extractedDocText || extractedDocText.length < 80) {
+          const mimeType = dataUrl.substring(dataUrl.indexOf(":") + 1, dataUrl.indexOf(";")) || "application/pdf";
+          inlineData = { mimeType, data: dataUrl.split(",")[1] };
+        }
+      }
+
+      statusEl.textContent = "⚡ Estructurando macros, tomas y platos con Gemini 3.8...";
+      btn.textContent = "⚡ Procesando IA...";
+
+      const combinedContent = [rawText, extractedDocText ? extractedDocText.slice(0, 14000) : ""]
+        .filter(Boolean)
+        .join("\n\n");
 
       const profileName = state.profiles[targetUserId].name;
       const prompt = `
-Analiza este plan nutricional enviado por un nutricionista para el perfil de "${profileName}".
-Texto adicional del usuario: "${rawText}".
+Analiza este plan nutricional de "${profileName}".
+Contenido del plan:
+"""
+${combinedContent}
+"""
 
 Extrae de forma directa y concisa:
 1. Objetivo calórico y de macronutrientes diarios (kcal, proteínas g, hidratos g, grasas g).
-2. Restricciones digestivas, alergias o alimentos a evitar mencionados en el documento.
+2. Restricciones digestivas, alergias o alimentos a evitar.
 3. Todas las tomas diarias configuradas en la dieta (ej. Desayuno, Media Mañana, Almuerzo, Merienda, Cena, Comodín) con sus calorías y macros aproximados por toma.
-4. Hasta 12 platos o ejemplos principales del plan con sus ingredientes y pesos exactos en crudo.
+4. Hasta 10 platos principales del plan con sus ingredientes y pesos exactos en crudo.
 
-Devuelve ÚNICAMENTE un JSON válido con esta estructura:
+Devuelve ÚNICAMENTE un JSON válido:
 {
-  "dailyTarget": { "kcal": 2100, "p": 170, "hc": 225, "g": 55 },
+  "dailyTarget": { "kcal": 1600, "p": 136, "hc": 158, "g": 40 },
   "restrictions": "Texto resumen de exclusiones o tolerancias",
   "slots": [
-    { "id": "desayuno", "name": "Desayuno", "icon": "☕", "isMainMeal": false, "target": { "kcal": 400, "p": 30, "hc": 45, "g": 11 } },
-    { "id": "almuerzo", "name": "Almuerzo", "icon": "🍽️", "isMainMeal": true, "target": { "kcal": 680, "p": 60, "hc": 70, "g": 18 } }
+    { "id": "desayuno", "name": "Desayuno", "icon": "☕", "isMainMeal": false, "target": { "kcal": 300, "p": 20, "hc": 30, "g": 10 } },
+    { "id": "almuerzo", "name": "Almuerzo", "icon": "🍽️", "isMainMeal": true, "target": { "kcal": 511, "p": 48, "hc": 44, "g": 13 } }
   ],
   "extractedDishes": [
     {
       "slotId": "almuerzo",
       "title": "Nombre del plato extraído",
-      "macros": { "kcal": 680, "p": 60, "hc": 70, "g": 18 },
+      "macros": { "kcal": 511, "p": 48, "hc": 44, "g": 13 },
       "ingredients": [
-        { "name": "Pollo", "category": "Carnicería y Pescadería", "unit": "g", "qty": 220 }
+        { "name": "Pollo", "category": "Carnicería y Pescadería", "unit": "g", "qty": 200 }
       ]
     }
   ]
@@ -803,7 +885,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   }
 
   // --------------------------------------------------------------------------
-  // 5. PESTAÑA REVISIÓN CLÍNICA + VISOR DEL PDF DE CADA REVISIÓN
+  // 6. PESTAÑA REVISIÓN CLÍNICA + VISOR DEL PDF DE CADA REVISIÓN
   // --------------------------------------------------------------------------
   function ensurePreloadedFernandoReport() {
     if (!state) return;
@@ -934,20 +1016,34 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
     }
 
     btn.disabled = true;
-    btn.textContent = "⚡ Extrayendo con Hydrogen...";
+    btn.textContent = "⚡ Leyendo PDF...";
 
     try {
       const file = fileInput.files[0];
       const dataUrl = await readFileAsDataUrl(file);
-      const base64 = dataUrl.split(",")[1];
-      const inlineData = { mimeType: file.type || "application/pdf", data: base64 };
+
+      let extractedDocText = "";
+      let inlineData = null;
+
+      if (dataUrl.startsWith("data:application/pdf")) {
+        extractedDocText = await extractTextFromPdfDataUrl(dataUrl);
+      }
+      if (!extractedDocText || extractedDocText.length < 80) {
+        const mimeType = dataUrl.substring(dataUrl.indexOf(":") + 1, dataUrl.indexOf(";")) || "application/pdf";
+        inlineData = { mimeType, data: dataUrl.split(",")[1] };
+      }
+
+      btn.textContent = "⚡ Procesando IA...";
 
       const prompt = `
-Extrae los datos antropométricos y de composición corporal de este informe de revisión nutricional.
+Extrae los datos antropométricos y de composición corporal de este informe de revisión nutricional:
+"""
+${extractedDocText.slice(0, 10000)}
+"""
 Convierte la fecha al formato YYYY-MM-DD (si aparece 11-17-2026 o 17/11/2026 es "2026-11-17").
-Si algún dato no aparece en el documento, pon null.
+Si algún dato no aparece, pon null.
 
-Devuelve ÚNICAMENTE un JSON válido con esta estructura:
+Devuelve ÚNICAMENTE un JSON válido:
 {
   "dateIso": "2026-11-17",
   "weight": 96.0,
@@ -1131,7 +1227,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   };
 
   // --------------------------------------------------------------------------
-  // 6. ENLACE DE RENDERIZADO GLOBAL E INICIALIZACIÓN
+  // 7. ENLACE DE RENDERIZADO GLOBAL E INICIALIZACIÓN
   // --------------------------------------------------------------------------
   function patchRenderHooks() {
     if (typeof window.renderSettingsTab === "function") {
