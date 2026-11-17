@@ -1,6 +1,6 @@
 // ============================================================================
-// mejora.js — v2.3 (Gemini 3.8 Flash + Visor PDF en Revisión Clínica +
-// Vista Semanal Comidas/Cenas + PDFs en Ajustes + Barra Inferior Elevada)
+// mejora.js — v2.5 (Gemini 4 Hydrogen en Toda la App: Recetas, PDFs, Desfases
+// y Revisión Clínica + Visor Documentos + Vista Semanal Comidas/Cenas)
 // ============================================================================
 
 (function () {
@@ -81,10 +81,10 @@
   }
 
   // --------------------------------------------------------------------------
-  // 2. BLINDAJE DE API KEY GEMINI + MODELO ACTUALIZADO (gemini-3.8-flash)
+  // 2. BLINDAJE API KEY + GEMINI 4 HYDROGEN (THINKING LOW GLOBAL)
   // --------------------------------------------------------------------------
   function getResolvedGeminiKey() {
-    const fromState = (window.state?.settings?.geminiApiKey || "").trim();
+    const fromState = (state?.settings?.geminiApiKey || "").trim();
     if (fromState) {
       localStorage.setItem(KEY_BACKUP_STORAGE, fromState);
       return fromState;
@@ -92,19 +92,19 @@
     const fromInput = (document.getElementById("geminiApiKeyInput")?.value || "").trim();
     if (fromInput) {
       localStorage.setItem(KEY_BACKUP_STORAGE, fromInput);
-      if (window.state?.settings) window.state.settings.geminiApiKey = fromInput;
+      if (state?.settings) state.settings.geminiApiKey = fromInput;
       return fromInput;
     }
     const fromBackup = (localStorage.getItem(KEY_BACKUP_STORAGE) || "").trim();
-    if (fromBackup && window.state?.settings) {
-      window.state.settings.geminiApiKey = fromBackup;
+    if (fromBackup && state?.settings) {
+      state.settings.geminiApiKey = fromBackup;
     }
     return fromBackup;
   }
 
   function syncRecoveredKeyToCloudIfNeeded() {
     const key = getResolvedGeminiKey();
-    if (!key || !window.state?.settings) return;
+    if (!key || !state?.settings) return;
     const inp = document.getElementById("geminiApiKeyInput");
     if (inp && !inp.value) inp.value = key;
     if (typeof window.saveState === "function") {
@@ -127,7 +127,7 @@
         const val = e.target.value.trim();
         if (val) {
           localStorage.setItem(KEY_BACKUP_STORAGE, val);
-          if (window.state?.settings) window.state.settings.geminiApiKey = val;
+          if (state?.settings) state.settings.geminiApiKey = val;
         }
       }
     });
@@ -155,31 +155,40 @@
 
       const body = {
         contents: [{ role: "user", parts }],
-        generationConfig: { temperature: options.temperature ?? 0.2 }
+        generationConfig: {
+          responseMimeType: "application/json",
+          thinkingConfig: {
+            thinkingLevel: "LOW"
+          }
+        }
       };
 
-      const modelsToTry = ["gemini-3.8-flash", "gemini-2.5-flash"];
+      const modelsToTry = ["gemini-4-hydrogen", "gemini-3.8-flash"];
       let primaryError = null;
 
       for (let i = 0; i < modelsToTry.length; i++) {
         const modelName = modelsToTry[i];
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 55000);
+
         try {
           const resp = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body)
+              body: JSON.stringify(body),
+              signal: controller.signal
             }
           );
+          clearTimeout(timeoutId);
 
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
             const msg = errData?.error?.message || `Error HTTP ${resp.status}`;
             const errObj = new Error(msg);
             if (!primaryError) primaryError = errObj;
-            // Reintentar con el segundo modelo solo si el primero devuelve 404 (no encontrado)
-            if (resp.status === 404 && i < modelsToTry.length - 1) {
+            if ((resp.status === 404 || resp.status === 429) && i < modelsToTry.length - 1) {
               continue;
             }
             throw errObj;
@@ -190,11 +199,137 @@
           if (!rawText) throw new Error("Respuesta vacía de la IA.");
           return rawText;
         } catch (err) {
-          if (!primaryError) primaryError = err;
+          clearTimeout(timeoutId);
+          const cleanErr =
+            err.name === "AbortError"
+              ? new Error("Tiempo de espera agotado (55s). Comprueba tu conexión o intenta de nuevo.")
+              : err;
+          if (!primaryError) primaryError = cleanErr;
           if (i === modelsToTry.length - 1) throw primaryError;
         }
       }
       throw primaryError || new Error("No se pudo conectar con Gemini API.");
+    };
+
+    // Optimizar también el Creador de Platos para que use prompt directo con Gemini 4 Hydrogen
+    window.generateAIRecipe = async function () {
+      const ingsText = document.getElementById("aiRecipeIngredientsInput").value.trim();
+      if (!ingsText) {
+        alert("Escribe al menos un ingrediente disponible.");
+        return;
+      }
+
+      const slotId = document.getElementById("aiRecipeSlotSelect").value;
+      const dinersMode = document.getElementById("aiRecipeDinersSelect").value;
+      const stylePref = document.getElementById("aiRecipeStyleInput").value.trim();
+      const btn = document.getElementById("btnGenerateAIRecipe");
+      const resBox = document.getElementById("aiRecipeResultBox");
+
+      const activeApps = (state.settings.appliances || [])
+        .filter((a) => a.active)
+        .map((a) => a.name)
+        .join("; ");
+      const slotNoe = state.profiles.noelia.slots.find((s) => s.id === slotId) || state.profiles.noelia.slots[1];
+      const slotNan = state.profiles.nando.slots.find((s) => s.id === slotId) || state.profiles.nando.slots[1];
+
+      btn.disabled = true;
+      btn.textContent = "⚡ Calculando con Hydrogen...";
+      resBox.classList.remove("hidden");
+      resBox.innerHTML = `<div class="text-xs font-bold text-emerald-700 animate-pulse">⚡ Gemini 4 Hydrogen calculando gramos exactos y adaptando tiempos a tus equipos...</div>`;
+
+      try {
+        const prompt = `
+Eres nutricionista deportivo y chef ejecutivo. Crea una receta real, sabrosa y práctica usando estos ingredientes disponibles: "${ingsText}".
+Preferencia: "${stylePref || "Sabrosa, jugosa y rápida"}".
+
+OBJETIVOS NUTRICIONALES DE ESTA TOMA (${slotNoe.name}):
+- Nando: ${slotNan.target.kcal} kcal (${slotNan.target.p}g P, ${slotNan.target.hc}g HC, ${slotNan.target.g}g G). Restricciones: ${state.profiles.nando.restrictions}.
+- Noelia: ${slotNoe.target.kcal} kcal (${slotNoe.target.p}g P, ${slotNoe.target.hc}g HC, ${slotNoe.target.g}g G). Restricciones: ${state.profiles.noelia.restrictions}.
+
+REGLAS:
+1. Calcula los gramos/ml/unidades exactos en crudo de cada ingrediente para clavar los macros de Nando y Noelia.
+2. Si falta algún macronutriente clave o aderezo, añade el complemento necesario (ej. AOVE, patata, arroz, especias sin cebolla/ajo).
+3. Redacta pasos breves y directos usando exclusivamente estos electrodomésticos: ${activeApps}.
+
+Devuelve ÚNICAMENTE un JSON válido:
+{
+  "title": "Nombre del plato",
+  "addedComplementsNote": "Breve nota sobre complementos o especias añadidos",
+  "macros": {
+    "noelia": { "kcal": 511, "p": 48, "hc": 44, "g": 13 },
+    "nando": { "kcal": 640, "p": 55, "hc": 65, "g": 17 }
+  },
+  "ingredients": [
+    {
+      "name": "Ingrediente",
+      "category": "Carnicería y Pescadería | Verduras y Frutas | Lácteos, Huevos y Refrigerados | Despensa, Secos y Aceites | Congelados y Otros",
+      "unit": "g",
+      "gNoelia": 180,
+      "gNando": 220
+    }
+  ],
+  "steps": [
+    "Paso 1 con equipo, temperatura y tiempo exacto..."
+  ]
+}`;
+
+        const raw = await callGeminiAPI(prompt);
+        const parsed = extractCleanJSON(raw);
+
+        const newDishId = "ai_" + Date.now();
+        lastGeneratedAIDish = {
+          id: newDishId,
+          slotId,
+          title: parsed.title || "Receta Personalizada IA",
+          macros: parsed.macros || { noelia: slotNoe.target, nando: slotNan.target },
+          ingredients: parsed.ingredients || [],
+          steps: parsed.steps || []
+        };
+
+        const ingListHtml = lastGeneratedAIDish.ingredients
+          .map((it) => {
+            const gNoe = Number(it.gNoelia) || 0;
+            const gNan = Number(it.gNando) || 0;
+            const gTot = Number((gNoe + gNan).toFixed(1));
+            if (dinersMode === "joint") {
+              const pctNoe = gTot > 0 ? Math.round((gNoe / gTot) * 100) : 50;
+              return `<li><b>${it.name}:</b> Noelia <b>${gNoe}${it.unit}</b> | Nando <b>${gNan}${it.unit}</b> <span class="text-emerald-700 font-bold">(Total crudo: ${gTot}${it.unit} · Reparto cocinado: ${pctNoe}% / ${100 - pctNoe}%)</span></li>`;
+            } else {
+              const qty = dinersMode === "noelia" ? gNoe : gNan;
+              return `<li><b>${it.name}:</b> <b>${qty} ${it.unit}</b></li>`;
+            }
+          })
+          .join("");
+
+        resBox.innerHTML = `
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3.5 space-y-2.5">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h4 class="text-sm font-extrabold text-slate-900">✅ ${lastGeneratedAIDish.title}</h4>
+                <p class="text-[11px] text-emerald-800 font-semibold mt-0.5">${parsed.addedComplementsNote || ""}</p>
+              </div>
+              <button onclick="saveLastAIDishToLibrary()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
+                💾 Guardar Plato en Recetario
+              </button>
+            </div>
+            <div class="bg-white p-2.5 rounded-xl border border-emerald-200/80 text-xs">
+              <div class="font-extrabold text-slate-800 mb-1">⚖️ Cantidades Exactas en Crudo:</div>
+              <ul class="list-disc pl-5 space-y-1 text-slate-700">${ingListHtml}</ul>
+            </div>
+            <div class="bg-white p-2.5 rounded-xl border border-emerald-200/80 text-xs space-y-1">
+              <div class="font-extrabold text-slate-800">👨‍🍳 Preparación en tus Equipos:</div>
+              <ol class="list-decimal pl-5 space-y-1 text-slate-700">
+                ${lastGeneratedAIDish.steps.map((s) => `<li>${s}</li>`).join("")}
+              </ol>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        resBox.innerHTML = `<div class="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">⚠️ ${err.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "✨ Calcular Gramos y Crear Receta con IA";
+      }
     };
   }
 
@@ -489,8 +624,8 @@
     }
 
     btn.disabled = true;
-    btn.textContent = "⏳ Analizando plan nutricional...";
-    statusEl.textContent = "Extrayendo calorías, macros, tomas y platos base con Gemini 3.8...";
+    btn.textContent = "⚡ Analizando con Hydrogen...";
+    statusEl.textContent = "⚡ Extrayendo calorías, macros, tomas y platos con Gemini 4 Hydrogen...";
 
     try {
       let inlineData = null;
@@ -518,11 +653,11 @@
 Analiza este plan nutricional enviado por un nutricionista para el perfil de "${profileName}".
 Texto adicional del usuario: "${rawText}".
 
-Extrae:
+Extrae de forma directa y concisa:
 1. Objetivo calórico y de macronutrientes diarios (kcal, proteínas g, hidratos g, grasas g).
 2. Restricciones digestivas, alergias o alimentos a evitar mencionados en el documento.
 3. Todas las tomas diarias configuradas en la dieta (ej. Desayuno, Media Mañana, Almuerzo, Merienda, Cena, Comodín) con sus calorías y macros aproximados por toma.
-4. Los platos o ejemplos principales que aparezcan en el plan con sus ingredientes y pesos exactos en crudo.
+4. Hasta 12 platos o ejemplos principales del plan con sus ingredientes y pesos exactos en crudo.
 
 Devuelve ÚNICAMENTE un JSON válido con esta estructura:
 {
@@ -544,7 +679,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   ]
 }`;
 
-      const raw = await callGeminiAPI(prompt, { inlineData, temperature: 0.1 });
+      const raw = await callGeminiAPI(prompt, { inlineData });
       const parsed = extractCleanJSON(raw);
 
       const prof = state.profiles[targetUserId];
@@ -671,7 +806,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   // 5. PESTAÑA REVISIÓN CLÍNICA + VISOR DEL PDF DE CADA REVISIÓN
   // --------------------------------------------------------------------------
   function ensurePreloadedFernandoReport() {
-    if (!window.state) return;
+    if (!state) return;
     if (!Array.isArray(state.clinical)) state.clinical = [];
 
     const exists = state.clinical.some((r) => r.userId === "nando" && r.dateIso === "2026-11-17");
@@ -799,7 +934,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
     }
 
     btn.disabled = true;
-    btn.textContent = "⏳ Extrayendo datos del informe...";
+    btn.textContent = "⚡ Extrayendo con Hydrogen...";
 
     try {
       const file = fileInput.files[0];
@@ -838,7 +973,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
   }
 }`;
 
-      const raw = await callGeminiAPI(prompt, { inlineData, temperature: 0.1 });
+      const raw = await callGeminiAPI(prompt, { inlineData });
       const parsed = extractCleanJSON(raw);
 
       const dateIso = parsed.dateIso || getTodayIso();
