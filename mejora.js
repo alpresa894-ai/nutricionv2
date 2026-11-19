@@ -1,6 +1,6 @@
 // ============================================================================
-// mejora.js — v2.8 (Constructor por 3 Columnas del Plan + Filtro Ambos/Solo Nando
-// + Gemini 3.8 Flash Fast + Visor PDFs + Vista Semanal Comidas/Cenas)
+// mejora.js — v2.9 (Filtro Estricto por Toma en Selector + Constructor 3 Columnas
+// + Filtro Ambos/Solo Nando + Gemini 3.8 Flash Fast + Visor PDFs)
 // ============================================================================
 
 (function () {
@@ -298,6 +298,27 @@
       }
       throw firstError || new Error("No se pudo conectar con Gemini 3.8 Flash.");
     };
+
+    window.quickAssignFromModal = function (dishId) {
+      const dish = state.dishes[dishId];
+      if (!dish) return;
+      const dayIdx = parseInt(document.getElementById("modalQuickDaySel").value, 10);
+      const weekKey = getMondayIsoForOffset(currentWeekOffset);
+      const weekData = ensureWeekExists(weekKey);
+      const mode = activeModalContext?.mode || "nando";
+      const isSoloNando = getDishAudience(dish) === "nando";
+
+      if (mode === "joint" && state.settings.mode === "couple" && !isSoloNando) {
+        weekData.nando[dayIdx][dish.slotId] = dishId;
+        weekData.noelia[dayIdx][dish.slotId] = dishId;
+      } else {
+        const uid = !isSoloNando && mode === "noelia" ? "noelia" : "nando";
+        weekData[uid][dayIdx][dish.slotId] = dishId;
+      }
+      saveState(true);
+      closeRecipeModal();
+      renderAll();
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -566,7 +587,7 @@
   }
 
   // --------------------------------------------------------------------------
-  // 5. RECETARIO Y SELECTOR CON FILTRO AMBOS VS SOLO NANDO
+  // 5. RECETARIO Y SELECTOR ESTRICTO POR COMIDA DEL DÍA
   // --------------------------------------------------------------------------
   window.setRecipeAudienceFilter = function (f) {
     recipeAudienceFilter = f;
@@ -580,7 +601,6 @@
     const isCouple = state.settings.mode === "couple";
     const activeView = isCouple ? state.settings.activeViewProfile : "nando";
 
-    // Inyectar selector de filtro Ambos / Solo Nando junto al filtro de tomas
     const slotFilterEl = document.getElementById("recipeFilterSlot");
     if (slotFilterEl && !document.getElementById("recipeAudienceBar")) {
       const bar = document.createElement("div");
@@ -654,47 +674,67 @@
       .join("");
   };
 
-  // Filtrar en el selector de cambio de plato (Noelia nunca ve platos Solo Nando)
+  // SELECTOR ESTRICTO: cada toma solo permite platos asignados a esa comida del día
   window.openSlotPickerModal = function (dayIdx, slotId, userId) {
     const profile = state.profiles[userId];
     const slot = profile.slots.find((s) => s.id === slotId);
-    document.getElementById("slotPickerTitle").textContent = `${DAYS_NAMES[dayIdx]} · ${slot ? slot.name : slotId} (${profile.name})`;
+    const slotName = slot ? slot.name : slotId;
+    const normSlot = String(slotId || "").toLowerCase();
+    const isMainMeal = normSlot === "almuerzo" || normSlot === "cena" || normSlot === "comida";
 
-    const allDishes = Object.values(state.dishes || {}).filter((d) => {
+    document.getElementById("slotPickerTitle").textContent = `${DAYS_NAMES[dayIdx]} · ${slotName} (${profile.name})`;
+    const subEl = document.getElementById("slotPickerSubtitle");
+    if (subEl) {
+      subEl.textContent = isMainMeal
+        ? "Mostrando únicamente opciones de Almuerzo / Cena"
+        : `Mostrando únicamente opciones de ${slotName}`;
+    }
+
+    const filteredDishes = Object.values(state.dishes || []).filter((d) => {
       if (userId === "noelia" && getDishAudience(d) === "nando") return false;
-      return true;
+      const dSlot = String(d.slotId || "").toLowerCase();
+      if (isMainMeal) {
+        return dSlot === "almuerzo" || dSlot === "cena" || dSlot === "comida";
+      }
+      return dSlot === normSlot;
     });
 
-    const isMain = slotId === "almuerzo" || slotId === "cena";
-    const matchingDishes = allDishes.filter((d) =>
-      isMain ? d.slotId === "almuerzo" || d.slotId === "cena" : d.slotId === slotId
-    );
-    const otherDishes = allDishes.filter((d) => !matchingDishes.includes(d));
-    const ordered = [...matchingDishes, ...otherDishes];
+    // Priorizar los etiquetados exactamente para esa toma y ordenar alfabéticamente
+    filteredDishes.sort((a, b) => {
+      const aExact = String(a.slotId || "").toLowerCase() === normSlot ? 0 : 1;
+      const bExact = String(b.slotId || "").toLowerCase() === normSlot ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      return (a.title || "").localeCompare(b.title || "");
+    });
 
-    document.getElementById("slotPickerList").innerHTML = ordered
-      .map((d) => {
-        const m = getDishMacrosForUser(d.id, userId, slot?.target);
-        return `
-        <div onclick="selectDishForSlot(${dayIdx}, '${slotId}', '${userId}', '${d.id}')"
-          class="p-2.5 rounded-2xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 cursor-pointer transition-all space-y-1">
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-xs font-extrabold text-slate-900">${d.title}</span>
-            <div class="flex items-center gap-1 flex-shrink-0">
-              ${getAudienceBadgeHtml(d)}
-              <span class="text-[10.5px] font-bold text-emerald-700 whitespace-nowrap">${Math.round(m.kcal)} kcal</span>
+    const listEl = document.getElementById("slotPickerList");
+    if (filteredDishes.length === 0) {
+      listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-6">No hay platos guardados para ${slotName}.</p>`;
+    } else {
+      listEl.innerHTML = filteredDishes
+        .map((d) => {
+          const m = getDishMacrosForUser(d.id, userId, slot?.target);
+          return `
+          <div onclick="selectDishForSlot(${dayIdx}, '${slotId}', '${userId}', '${d.id}')"
+            class="p-2.5 rounded-2xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 cursor-pointer transition-all space-y-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-extrabold text-slate-900">${d.title}</span>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                ${getAudienceBadgeHtml(d)}
+                <span class="text-[10.5px] font-bold text-emerald-700 whitespace-nowrap">${Math.round(m.kcal)} kcal</span>
+              </div>
             </div>
+            <p class="text-[11px] text-slate-500 truncate">
+              ${(d.ingredients || [])
+                .filter((i) => (userId === "noelia" ? i.gNoelia > 0 : i.gNando > 0))
+                .map((i) => `${i.name} (${userId === "noelia" ? i.gNoelia : i.gNando}${i.unit})`)
+                .join(" · ")}
+            </p>
           </div>
-          <p class="text-[11px] text-slate-500 truncate">
-            ${(d.ingredients || [])
-              .filter((i) => (userId === "noelia" ? i.gNoelia > 0 : i.gNando > 0))
-              .map((i) => `${i.name} (${userId === "noelia" ? i.gNoelia : i.gNando}${i.unit})`)
-              .join(" · ")}
-          </p>
-        </div>
-      `;
-      })
-      .join("");
+        `;
+        })
+        .join("");
+    }
 
     document.getElementById("slotPickerModal").classList.remove("hidden");
   };
