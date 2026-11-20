@@ -1,6 +1,3 @@
-
-mejora.js
-100 %
 // ============================================================================
 // mejora.js — v3.0 (Arquitectura limpia completa para NutriPlan AI)
 // PARTE 1/3: Estado, Firebase Realtime Sync, Gemini 3.8 Flash, Navegación,
