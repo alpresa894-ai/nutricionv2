@@ -1,5 +1,5 @@
 // ============================================================================
-// mejora.js — v3.0 (Arquitectura limpia completa para NutriPlan AI)
+// mejora.js — v3.1 (Arquitectura limpia completa para NutriPlan AI)
 // PARTE 1/3: Estado, Firebase Realtime Sync, Gemini 3.8 Flash, Navegación,
 //            Pestaña Plan (Visual + Edición en Visión Conjunta) y Modales.
 // ============================================================================
@@ -12,6 +12,9 @@
   // --------------------------------------------------------------------------
   const STORAGE_KEY = "nutriplan_v3_state";
   const LEGACY_STORAGE_KEYS = ["nutriplan_state_v2", "nutriplan_state", "nutriplan_data"];
+  const APP_VERSION = "v3.1";
+  const DEFAULT_FIREBASE_URL = "https://nutricion-8aeb1-default-rtdb.europe-west1.firebasedatabase.app";
+  const DEFAULT_FIREBASE_ROOM = "hogar_nando_noelia";
   const KEY_BACKUP_STORAGE = "nutriplan_gemini_key_backup";
   const FB_URL_BACKUP_STORAGE = "nutriplan_firebase_url_backup";
   const FB_ROOM_BACKUP_STORAGE = "nutriplan_firebase_room_backup";
@@ -37,8 +40,8 @@
         mode: "couple",
         activeViewProfile: "nando",
         geminiApiKey: "",
-        firebaseDbUrl: "",
-        firebaseRoom: "hogar_nando_noelia",
+        firebaseDbUrl: DEFAULT_FIREBASE_URL,
+        firebaseRoom: DEFAULT_FIREBASE_ROOM,
         appliances: [
           { id: "mambo", name: "Cecotec Mambo 10090 (Jarra Inox, Jarra Habana + MamboMix, Vaporera)", active: true },
           { id: "teka", name: "Horno compacto Teka HSC 635 (Convección / Turbina)", active: true },
@@ -115,6 +118,7 @@
   let slotPickerContext = null;
   let lastGeneratedAIDish = null;
   let firebaseSyncTimer = null;
+  let isCloudBusy = false;
   let toastTimer = null;
 
   // --------------------------------------------------------------------------
@@ -262,8 +266,9 @@
 
     if (!merged.settings.geminiApiKey && bKey) merged.settings.geminiApiKey = bKey;
     if (!merged.settings.firebaseDbUrl && bUrl) merged.settings.firebaseDbUrl = bUrl;
+    if (!merged.settings.firebaseDbUrl) merged.settings.firebaseDbUrl = DEFAULT_FIREBASE_URL;
     if (!merged.settings.firebaseRoom && bRoom) merged.settings.firebaseRoom = bRoom;
-    if (!merged.settings.firebaseRoom) merged.settings.firebaseRoom = "hogar_nando_noelia";
+    if (!merged.settings.firebaseRoom) merged.settings.firebaseRoom = DEFAULT_FIREBASE_ROOM;
 
     return merged;
   }
@@ -333,12 +338,20 @@
     }
   }
 
+  function getFirebaseTimestampEndpoint() {
+    const baseUrl = (state?.settings?.firebaseDbUrl || "").trim().replace(/\/+$/, "");
+    const room = (state?.settings?.firebaseRoom || DEFAULT_FIREBASE_ROOM).trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) return null;
+    return `${baseUrl}/nutriplan_rooms/${room}/updatedAt.json`;
+  }
+
   async function pushStateToFirebase() {
     const endpoint = getFirebaseEndpoint();
     if (!endpoint) {
       updateSyncBadge("local", "Local");
       return false;
     }
+    isCloudBusy = true;
     updateSyncBadge("syncing", "Guardando...");
     try {
       const resp = await fetch(endpoint, {
@@ -347,12 +360,14 @@
         body: JSON.stringify(state)
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      updateSyncBadge("synced", `Sincronizado`);
+      updateSyncBadge("synced", "Sincronizado");
       return true;
     } catch (err) {
       console.warn("Firebase push error:", err);
       updateSyncBadge("error", "Sin conexión");
       return false;
+    } finally {
+      isCloudBusy = false;
     }
   }
 
@@ -362,6 +377,8 @@
       updateSyncBadge("local", "Local");
       return false;
     }
+    if (!forceApply && (isCloudBusy || firebaseSyncTimer)) return false;
+    isCloudBusy = true;
     updateSyncBadge("syncing", "Comprobando...");
     try {
       const resp = await fetch(endpoint, { method: "GET", cache: "no-store" });
@@ -369,7 +386,8 @@
       const remote = await resp.json();
 
       if (!remote || typeof remote !== "object") {
-        // Sala vacía en Firebase: subimos el estado local
+        // Sala vacía en Firebase: subimos el estado local si tiene datos
+        isCloudBusy = false;
         if (Object.keys(state.dishes || {}).length > 0) {
           await pushStateToFirebase();
         } else {
@@ -384,15 +402,17 @@
       const remoteHasDishes = Object.keys(remote.dishes || {}).length > 0;
 
       if (forceApply || (remoteHasDishes && (localEmpty || remoteTs > localTs))) {
-        // Conservamos la vista de perfil preferida de este teléfono concreto
+        // Conservamos la vista de perfil y credenciales de este dispositivo concreto
         const localViewProfile = state.settings?.activeViewProfile || "nando";
         const localUrl = state.settings?.firebaseDbUrl;
         const localRoom = state.settings?.firebaseRoom;
+        const localKey = state.settings?.geminiApiKey;
 
         state = normalizeStateStructure(remote);
         state.settings.activeViewProfile = localViewProfile;
         if (localUrl) state.settings.firebaseDbUrl = localUrl;
         if (localRoom) state.settings.firebaseRoom = localRoom;
+        if (!state.settings.geminiApiKey && localKey) state.settings.geminiApiKey = localKey;
 
         backupCredentialsLocally();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -401,12 +421,38 @@
         return true;
       }
 
+      // Si este dispositivo tenía cambios locales más recientes sin subir (ej. venía de modo Local), los subimos
+      if (!forceApply && !localEmpty && localTs > remoteTs) {
+        isCloudBusy = false;
+        await pushStateToFirebase();
+        return false;
+      }
+
       updateSyncBadge("synced", "Sincronizado");
       return false;
     } catch (err) {
       console.warn("Firebase pull error:", err);
       updateSyncBadge("error", "Sin conexión");
       return false;
+    } finally {
+      isCloudBusy = false;
+    }
+  }
+
+  async function checkCloudUpdatesLightweight() {
+    if (document.visibilityState !== "visible" || isCloudBusy || firebaseSyncTimer) return;
+    const tsUrl = getFirebaseTimestampEndpoint();
+    if (!tsUrl) return;
+    try {
+      const resp = await fetch(tsUrl, { method: "GET", cache: "no-store" });
+      if (!resp.ok) return;
+      const remoteTs = Number(await resp.json() || 0);
+      const localTs = Number(state.updatedAt || 0);
+      if (remoteTs > localTs) {
+        await pullStateFromFirebase(false);
+      }
+    } catch (_) {
+      // Silencioso en polling de fondo
     }
   }
 
@@ -422,6 +468,7 @@
     if (syncCloud && getFirebaseEndpoint()) {
       if (firebaseSyncTimer) clearTimeout(firebaseSyncTimer);
       firebaseSyncTimer = setTimeout(() => {
+        firebaseSyncTimer = null;
         pushStateToFirebase();
       }, 350);
     }
@@ -463,28 +510,47 @@
     }
   }
 
+  function sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function callGeminiAPI(promptText) {
     const apiKey = getResolvedGeminiKey();
     if (!apiKey) {
       throw new Error("Configura tu API Key de Gemini en '⚙️ Ajustes' para usar funciones de IA.");
     }
 
+    // Reintento con backoff ante picos temporales (HTTP 503/429) + modelos de respaldo rápidos
     const attempts = [
       {
         model: "gemini-3.8-flash",
-        genConfig: { responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } }
+        genConfig: { responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
+        waitAfterMs: 1600
       },
       {
         model: "gemini-3.8-flash",
-        genConfig: { responseMimeType: "application/json" }
+        genConfig: { responseMimeType: "application/json" },
+        waitAfterMs: 2400
+      },
+      {
+        model: "gemini-3.8-flash-lite",
+        genConfig: { responseMimeType: "application/json" },
+        waitAfterMs: 1200
+      },
+      {
+        model: "gemini-2.5-flash",
+        genConfig: { responseMimeType: "application/json" },
+        waitAfterMs: 0
       }
     ];
 
     let lastErr = null;
+    let sawHighDemand = false;
+
     for (let i = 0; i < attempts.length; i++) {
-      const { model, genConfig } = attempts[i];
+      const { model, genConfig, waitAfterMs } = attempts[i];
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
       try {
         const resp = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -505,6 +571,11 @@
           const msg = errJson?.error?.message || `Error HTTP ${resp.status}`;
           lastErr = new Error(msg);
           if (resp.status === 400 && /API key not valid/i.test(msg)) throw lastErr;
+          const isOverload = resp.status === 503 || resp.status === 429 || /high demand|overloaded|unavailable/i.test(msg);
+          if (isOverload) {
+            sawHighDemand = true;
+            if (waitAfterMs > 0) await sleepMs(waitAfterMs);
+          }
           continue;
         }
         const data = await resp.json();
@@ -513,11 +584,16 @@
         return text;
       } catch (err) {
         clearTimeout(timeoutId);
-        lastErr = err.name === "AbortError" ? new Error("Tiempo de espera agotado (45 s). Inténtalo de nuevo.") : err;
+        lastErr = err.name === "AbortError" ? new Error("Tiempo de espera agotado (35 s). Inténtalo de nuevo.") : err;
         if (/API key not valid/i.test(lastErr.message || "")) break;
+        if (waitAfterMs > 0 && i < attempts.length - 1) await sleepMs(1000);
       }
     }
-    throw lastErr || new Error("No se pudo conectar con Gemini 3.8 Flash.");
+
+    if (sawHighDemand) {
+      throw new Error("Servidores de Gemini saturados temporalmente (pico de demanda). Inténtalo en unos segundos o usa 'Guardar Manual'.");
+    }
+    throw lastErr || new Error("No se pudo conectar con Gemini.");
   }
 
   // --------------------------------------------------------------------------
@@ -1498,24 +1574,57 @@
     loadStateFromLocal
   };
 
+  // Fix visual iOS Safari para inputs de fecha y cierre táctil de avisos toast
+  function injectMobileFixes() {
+    if (!document.getElementById("npIosFixStyle")) {
+      const st = document.createElement("style");
+      st.id = "npIosFixStyle";
+      st.textContent = `
+        input[type="date"] {
+          max-width: 100%;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+          display: block;
+          -webkit-appearance: none;
+        }
+      `;
+      document.head.appendChild(st);
+    }
+    const verEl = document.getElementById("appVersionBadge");
+    if (verEl) verEl.textContent = APP_VERSION;
+    const toastEl = document.getElementById("appToast");
+    if (toastEl) {
+      toastEl.style.cursor = "pointer";
+      toastEl.onclick = () => toastEl.classList.add("hidden");
+    }
+  }
+
   // Arranque y sincronización automática en vivo entre dispositivos
   document.addEventListener("DOMContentLoaded", () => {
+    injectMobileFixes();
     loadStateFromLocal();
     updateHeaderProfileUI();
     renderAll();
 
-    // Pull inicial de Firebase y refresco al volver a la app en iPhone
-    setTimeout(() => pullStateFromFirebase(false), 350);
+    // Pull/Push inicial de Firebase, refresco al volver a primer plano y chequeo ligero cada 20 s
+    setTimeout(() => pullStateFromFirebase(false), 300);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible" && getFirebaseEndpoint()) {
         pullStateFromFirebase(false);
       }
     });
+    window.addEventListener("online", () => {
+      if (getFirebaseEndpoint()) pullStateFromFirebase(false);
+    });
+    setInterval(() => {
+      checkCloudUpdatesLightweight();
+    }, 20000);
   });
 })();
 
 // ============================================================================
-// mejora.js — v3.0 (Arquitectura limpia completa para NutriPlan AI)
+// mejora.js — v3.1 (Arquitectura limpia completa para NutriPlan AI)
 // PARTE 2/3: Pestaña Platos (Recetario plegable en acordeones, Constructor
 //            manual 3 Columnas + IA, Inventar Receta IA) y Pestaña Compra
 //            (agrupada por categorías en vivo desde el Plan Semanal).
@@ -2449,7 +2558,7 @@ Devuelve EXCLUSIVAMENTE un JSON válido:
 })();
 
 // ============================================================================
-// mejora.js — v3.0 (Arquitectura limpia completa para NutriPlan AI)
+// mejora.js — v3.1 (Arquitectura limpia completa para NutriPlan AI)
 // PARTE 3/3: Pestaña Desfases (dinámica a objetivos reales), Revisión Clínica
 //            (variaciones, veredicto automático y PDF Drive) y Ajustes
 //            (biblioteca PDFs Drive, puerta única JSON, Firebase e impresión).
