@@ -3335,4 +3335,3 @@ Devuelve EXCLUSIVAMENTE un JSON válido:
     renderPrintableSheet("Desayunos, Meriendas y Comodines", ["desayuno", "merienda", "comodin"]);
   };
 })();
-Mostrando index.html.
