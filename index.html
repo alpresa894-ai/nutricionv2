@@ -1,506 +1,690 @@
+
+index.html
+100 %
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NutriPlan AI — Adherencia Nutricional & Cocina Inteligente</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>NutriPlan AI — Nando &amp; Noelia</title>
+
+  <!-- Configuración PWA iOS / Android -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="NutriPlan AI" />
+  <meta name="theme-color" content="#f8fafc" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%230f172a'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='34'%3E%F0%9F%A5%97%3C/text%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='42' fill='%230f172a'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='96'%3E%F0%9F%A5%97%3C/text%3E%3C/svg%3E" />
+
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase SDK (Compat para sincronización en tiempo real sin servidores) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    :root {
+      --safe-bottom: env(safe-area-inset-bottom, 12px);
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+
+    html {
+      -webkit-tap-highlight-color: transparent;
+      scroll-behavior: smooth;
+    }
+
     body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: #f8fafc;
+      background-color: #f1f5f9;
       color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding-top: var(--safe-top);
+      padding-bottom: calc(96px + var(--safe-bottom));
     }
-    .tab-active {
-      background-color: #0f172a;
-      color: #ffffff;
-      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Acordeón suave para recetario y bloques plegables */
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details[open] .chev-icon { transform: rotate(180deg); }
+    .chev-icon { transition: transform 0.18s ease; }
+
+    /* Animación entrada modal */
+    @keyframes slideUpModal {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    @media print { .no-print { display: none !important; } }
+    .modal-panel { animation: slideUpModal 0.18s ease-out; }
+
+    /* Estilos de impresión (Hojas A3 / A4 nevera) */
+    @media print {
+      body {
+        background: #ffffff !important;
+        padding: 0 !important;
+      }
+      .no-print { display: none !important; }
+      #printArea {
+        display: block !important;
+        width: 100% !important;
+      }
+    }
   </style>
 </head>
-<body class="min-h-screen pb-24">
+<body class="antialiased selection:bg-emerald-200 selection:text-slate-900">
 
-  <!-- BARRA SUPERIOR DE PERFIL Y ESTADO DE SINCRONIZACIÓN -->
-  <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 px-3 py-2.5 no-print">
-    <div class="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <div class="w-9 h-9 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-extrabold text-base shadow-sm">
-          🥗
-        </div>
-        <div>
-          <div class="flex items-center gap-1.5">
-            <h1 class="text-sm font-extrabold tracking-tight text-slate-900">NutriPlan AI</h1>
-            <span id="syncStatusBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              💾 Local
-            </span>
+  <!-- ====================================================================== -->
+  <!-- CABECERA FIJA COMPACTA + SELECTOR DE PERFIL                            -->
+  <!-- ====================================================================== -->
+  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 no-print">
+    <div class="max-w-4xl mx-auto px-3.5 py-2.5 space-y-2.5">
+
+      <!-- Fila 1: Marca + Estado de sincronización Firebase -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-lg shadow-sm flex-shrink-0">
+            🥗
           </div>
-          <p id="headerSubtitle" class="text-[11px] text-slate-500 font-medium">Planificación, IA en Cocina y Adherencia</p>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5">
+              <h1 class="text-sm font-black tracking-tight text-slate-900 truncate">NutriPlan AI</h1>
+              <span id="appVersionBadge" class="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500">v3.0</span>
+            </div>
+            <p id="headerSubtitle" class="text-[11px] font-medium text-slate-500 truncate">Clever Nutrition · Nando &amp; Noelia</p>
+          </div>
         </div>
+
+        <button type="button" id="syncStatusBadge" onclick="switchTab('settings')"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors whitespace-nowrap">
+          <span id="syncDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+          <span id="syncStatusText">Local</span>
+        </button>
       </div>
 
-      <!-- SELECTOR DE PERFIL ACTIVO / VISIÓN CONJUNTA -->
-      <div id="profileSwitcherBar" class="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200 gap-1">
-        <!-- Renderizado dinámicamente según modo Individual o Pareja -->
+      <!-- Fila 2: Selector de perfil activo (Nando / Noelia / Visión Conjunta) -->
+      <div id="profileSwitcherBar" class="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
+        <button type="button" id="prof-nando" onclick="setActiveProfile('nando')"
+          class="py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all text-slate-600">
+          👨 Nando
+        </button>
+        <button type="button" id="prof-noelia" onclick="setActiveProfile('noelia')"
+          class="py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all text-slate-600">
+          👩 Noelia
+        </button>
+        <button type="button" id="prof-joint" onclick="setActiveProfile('joint')"
+          class="py-1.5 px-2 rounded-xl text-xs font-extrabold transition-all text-slate-600">
+          👩‍❤️‍👨 Conjunta
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- CONTENEDOR PRINCIPAL -->
-  <main class="max-w-5xl mx-auto px-3 pt-4 space-y-4">
+  <!-- ====================================================================== -->
+  <!-- CONTENEDOR PRINCIPAL DE PESTAÑAS                                       -->
+  <!-- ====================================================================== -->
+  <main class="max-w-4xl mx-auto px-3.5 pt-3.5 space-y-4 no-print">
 
-    <!-- BANNER DE CONTADORES OBJETIVOS DIARIO Y SEMANAL (SIN COMPENSACIONES) -->
-    <section id="adherenceCountersBanner" class="bg-white rounded-3xl border border-slate-200 p-3.5 shadow-sm">
-      <!-- Renderizado dinámicamente -->
-    </section>
-
-    <!-- NAVEGACIÓN PRINCIPAL -->
-    <nav class="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-1 no-print">
-      <button onclick="switchTab('planner')" id="nav-planner" class="tab-active px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        🗓️ Planificador
-      </button>
-      <button onclick="switchTab('recipes')" id="nav-recipes" class="bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        🍳 Platos & Creador IA
-      </button>
-      <button onclick="switchTab('shopping')" id="nav-shopping" class="bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        🛒 Compra (Día / Sem / Mes)
-      </button>
-      <button onclick="switchTab('deviations')" id="nav-deviations" class="bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        🍔 Desfases IA
-      </button>
-      <button onclick="switchTab('clinical')" id="nav-clinical" class="bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        📏 Revisión Clínica
-      </button>
-      <button onclick="switchTab('settings')" id="nav-settings" class="bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all">
-        ⚙️ Plan PDF & Cocina
-      </button>
-    </nav>
-
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 1: PLANIFICADOR SEMANAL / DIARIO Y VISIÓN CONJUNTA           -->
-    <!-- =================================================================== -->
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 1: PLAN (VISUAL, LIMPIO Y EDITABLE EN VISIÓN CONJUNTA)       -->
+    <!-- ==================================================================== -->
     <section id="view-planner" class="space-y-3">
-      <!-- Barra de Navegación de Semanas + Exportación PDF -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2 shadow-sm">
-        <div class="flex items-center gap-1.5">
-          <button onclick="changeWeekOffset(-1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 font-extrabold text-xs">◀</button>
-          <div class="px-2 text-center">
-            <span id="weekRangeLabel" class="text-xs font-extrabold text-slate-900 block">Semana Actual</span>
-            <span id="weekInheritNote" class="text-[10px] text-slate-500">Lunes a Domingo</span>
-          </div>
-          <button onclick="changeWeekOffset(1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 font-extrabold text-xs">▶</button>
-          <button onclick="resetToCurrentWeek()" class="ml-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700">Hoy</button>
+
+      <!-- Controles superiores: Navegador de semana + Vista Semana / Día -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-3 shadow-sm space-y-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <button type="button" onclick="changeWeek(-1)" aria-label="Semana anterior"
+            class="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center transition-colors">
+            ‹
+          </button>
+          <button type="button" onclick="goTodayWeek()" class="text-center min-w-0 flex-1">
+            <span id="weekRangeLabel" class="block text-xs sm:text-sm font-black text-slate-900 truncate">Semana Actual</span>
+            <span id="weekMetaHint" class="block text-[10.5px] font-semibold text-slate-400">Pulsa en cualquier plato para ver macros y receta</span>
+          </button>
+          <button type="button" onclick="changeWeek(1)" aria-label="Semana siguiente"
+            class="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center transition-colors">
+            ›
+          </button>
         </div>
 
-        <!-- Selector Vista Día / Semana (Especialmente útil en Visión Conjunta) -->
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <div class="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200">
-            <button onclick="setPlannerSubView('week')" id="btnSubWeek" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-900 text-white">Semana</button>
-            <button onclick="setPlannerSubView('day')" id="btnSubDay" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-slate-600">Día a Día</button>
-          </div>
-          <button onclick="printMealsPDF()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold shadow-sm">
-            📄 PDF Comidas/Cenas (1 Hoja)
+        <!-- Selector Vista Semana (Almuerzos/Cenas) vs Vista Día (5 Tomas) -->
+        <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-2xl">
+          <button type="button" id="btnSubViewWeek" onclick="setPlannerSubView('week')"
+            class="py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all bg-slate-900 text-white shadow-sm">
+            📅 Semana (Comidas/Cenas)
           </button>
-          <button onclick="printBreakfastSnacksPDF()" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold shadow-sm">
-            ☕ PDF Desayunos/Meriendas (1 Hoja)
+          <button type="button" id="btnSubViewDay" onclick="setPlannerSubView('day')"
+            class="py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all text-slate-600">
+            ☀️ Día (5 Tomas)
           </button>
         </div>
+
+        <!-- Barra de días (solo visible en Vista Día) -->
+        <div id="daySelectorBar" class="hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5"></div>
+
+        <!-- Resumen compacto del día / perfil (solo visible en Vista Día) -->
+        <div id="dayMacrosSummaryBar" class="hidden rounded-2xl bg-slate-50 border border-slate-200/80 px-3 py-2"></div>
       </div>
 
-      <!-- Selector de Día cuando está activa la Vista Día -->
-      <div id="daySelectorBar" class="hidden flex gap-1.5 overflow-x-auto hide-scrollbar pb-1"></div>
-
-      <!-- Contenedor Dinámico del Planificador -->
-      <div id="plannerGridContainer" class="space-y-3"></div>
+      <!-- Tarjetas del planificador -->
+      <div id="plannerGridContainer" class="space-y-2.5"></div>
     </section>
 
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 2: PLATOS Y CREADOR IA CON GOOGLE SEARCH Y EQUIPOS          -->
-    <!-- =================================================================== -->
-    <section id="view-recipes" class="hidden space-y-4">
-      <!-- Generador Inteligente con IA -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <div class="flex items-start justify-between gap-2">
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 2: PLATOS (RECETARIO PLEGABLE + 3 COLUMNAS + INVENTAR IA)    -->
+    <!-- ==================================================================== -->
+    <section id="view-recipes" class="hidden space-y-3">
+
+      <!-- Subnavegación interna limpia para evitar ruido visual -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-1.5 shadow-sm grid grid-cols-3 gap-1">
+        <button type="button" id="btnRecSubLibrary" onclick="setRecipesSubTab('library')"
+          class="py-2 px-2 rounded-2xl text-xs font-extrabold transition-all bg-slate-900 text-white shadow-sm">
+          📖 Recetario
+        </button>
+        <button type="button" id="btnRecSubColumns" onclick="setRecipesSubTab('columns')"
+          class="py-2 px-2 rounded-2xl text-xs font-extrabold transition-all text-slate-600 hover:bg-slate-50">
+          🧩 3 Columnas
+        </button>
+        <button type="button" id="btnRecSubAI" onclick="setRecipesSubTab('ai')"
+          class="py-2 px-2 rounded-2xl text-xs font-extrabold transition-all text-slate-600 hover:bg-slate-50">
+          ✨ Inventar IA
+        </button>
+      </div>
+
+      <!-- SUBVISTA 2A: RECETARIO ORGANIZADO Y PLEGABLE -->
+      <div id="recipesSub-library" class="space-y-3">
+        <div class="bg-white rounded-3xl border border-slate-200/90 p-3.5 shadow-sm space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h2 class="text-sm font-black text-slate-900">Recetario de Perfil Activo</h2>
+              <p id="recipesLibrarySubtitle" class="text-[11px] text-slate-500">Despliega un bloque y toca una receta para ver ingredientes y pasos.</p>
+            </div>
+            <span id="recipesTotalBadge" class="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 whitespace-nowrap">0 platos</span>
+          </div>
+
+          <!-- Filtro por destinatario (Conjuntas / Nando / Noelia) -->
+          <div id="recipeAudienceBar" class="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-2xl">
+            <button type="button" id="recAud-both" onclick="setRecipeAudienceFilter('both')"
+              class="py-1.5 px-2 rounded-xl text-[11px] font-extrabold transition-all bg-slate-900 text-white shadow-sm">
+              👩‍❤️‍👨 Conjuntas
+            </button>
+            <button type="button" id="recAud-nando" onclick="setRecipeAudienceFilter('nando')"
+              class="py-1.5 px-2 rounded-xl text-[11px] font-extrabold transition-all text-slate-600">
+              👨 Solo Nando
+            </button>
+            <button type="button" id="recAud-noelia" onclick="setRecipeAudienceFilter('noelia')"
+              class="py-1.5 px-2 rounded-xl text-[11px] font-extrabold transition-all text-slate-600">
+              👩 Solo Noelia
+            </button>
+          </div>
+
+          <!-- Buscador rápido + filtro por toma -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <input type="search" id="recipeSearchInput" oninput="renderRecipesLibrary()"
+              placeholder="🔍 Buscar plato o ingrediente (ej. salmón, trufa, wasa)..."
+              class="sm:col-span-2 w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/15" />
+            <select id="recipeFilterSlot" onchange="renderRecipesLibrary()"
+              class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold text-slate-700">
+              <option value="all">Todas las tomas</option>
+              <option value="almuerzo_cena">🍽️ Almuerzos y Cenas</option>
+              <option value="desayuno">☕ Desayunos</option>
+              <option value="merienda">🥪 Meriendas</option>
+              <option value="comodin">🍓 Comodín</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Contenedor de acordeones plegados por bloque -->
+        <div id="recipesLibraryContainer" class="space-y-2.5"></div>
+      </div>
+
+      <!-- SUBVISTA 2B: CONSTRUCTOR MANUAL POR LAS 3 COLUMNAS -->
+      <div id="recipesSub-columns" class="hidden">
+        <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
           <div>
-            <span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-              Gemini AI + Búsqueda Web + Tus Equipos
+            <span class="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              Tablas Oficiales Clever Nutrition
             </span>
-            <h2 class="text-base font-extrabold text-slate-900 mt-1">👨‍🍳 Creador de Platos Ajustados a tus Macros</h2>
-            <p class="text-xs text-slate-500">Escribe los ingredientes disponibles. La IA buscará recetas reales, calculará los gramos exactos para cumplir tu plan, sugerirá complementos/especias si falta algún macro y redactará el paso a paso en tus electrodomésticos.</p>
+            <h2 class="text-base font-black text-slate-900 mt-1">🧩 Crear Plato por las 3 Columnas</h2>
+            <p class="text-xs text-slate-500">Elige la comida y selecciona un alimento de cada columna. Los pesos en crudo se cuadran automáticamente con vuestros planes.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label for="colBuildSlot" class="block text-[11px] font-bold text-slate-600 mb-1">🎯 Toma</label>
+              <select id="colBuildSlot" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="almuerzo">🍽️ Almuerzo</option>
+                <option value="cena">🌙 Cena</option>
+              </select>
+            </div>
+            <div>
+              <label for="colBuildAudience" class="block text-[11px] font-bold text-slate-600 mb-1">👥 Para quién es</label>
+              <select id="colBuildAudience" onchange="refreshColumnBuilderOptions()" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="both">👩‍❤️‍👨 Compartido (Ambos)</option>
+                <option value="nando">👨 Solo Nando (2.230 kcal)</option>
+                <option value="noelia">👩 Solo Noelia (1.600 kcal)</option>
+              </select>
+            </div>
+            <div>
+              <label for="colBuildType" class="block text-[11px] font-bold text-slate-600 mb-1">⚖️ Estructura</label>
+              <select id="colBuildType" onchange="refreshColumnBuilderOptions()" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="3col">3 Columnas (Prot Magra + HC + Grasa)</option>
+                <option value="2col">2 Columnas (Prot con Grasa + HC)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <div class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+              <label for="colBuildProtein" class="block text-[11px] font-extrabold text-rose-700 mb-1">🥩 Columna 1: Proteína</label>
+              <select id="colBuildProtein" class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold"></select>
+            </div>
+            <div class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+              <label for="colBuildCarb" class="block text-[11px] font-extrabold text-amber-700 mb-1">🍚 Columna 2: Hidrato</label>
+              <select id="colBuildCarb" class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold"></select>
+            </div>
+            <div id="colBuildFatWrap" class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+              <label for="colBuildFat" class="block text-[11px] font-extrabold text-emerald-700 mb-1">🥑 Columna 3: Grasa / Salsa</label>
+              <select id="colBuildFat" class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold"></select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label for="colBuildVeg" class="block text-[11px] font-bold text-slate-600 mb-1">🥦 Guarnición de verduras</label>
+              <select id="colBuildVeg" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="fresh300">+ 300 g Verduras frescas</option>
+                <option value="frozen200">+ 200 g Verduras congeladas / crema</option>
+                <option value="mini100">+ 100 g Verduras (Maxi tortilla)</option>
+                <option value="none">Sin añadir verduras extra</option>
+              </select>
+            </div>
+            <div>
+              <label for="colBuildTitle" class="block text-[11px] font-bold text-slate-600 mb-1">🏷️ Nombre corto del plato (opcional)</label>
+              <input type="text" id="colBuildTitle" placeholder="Si lo dejas vacío se nombra solo..."
+                class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs" />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap justify-end gap-2 pt-1">
+            <button type="button" onclick="saveColumnBuiltDish(false)"
+              class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm">
+              💾 Guardar al Instante
+            </button>
+            <button type="button" id="btnColSaveAI" onclick="saveColumnBuiltDish(true)"
+              class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm">
+              ✨ Guardar + Pasos IA en Equipos
+            </button>
           </div>
         </div>
+      </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      <!-- SUBVISTA 2C: INVENTAR RECETA CON SOBRAS / OTROS INGREDIENTES (IA OPCIONAL) -->
+      <div id="recipesSub-ai" class="hidden">
+        <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
           <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">🎯 Toma objetivo</label>
-            <select id="aiRecipeSlotSelect" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"></select>
+            <span class="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Gemini 3.8 Flash · Opcional
+            </span>
+            <h2 class="text-base font-black text-slate-900 mt-1">✨ Inventar Receta con Otros Ingredientes</h2>
+            <p class="text-xs text-slate-500">Dime qué tienes en la nevera o qué te apetece y calcularé los gramos exactos en crudo respetando macros, tolerancias y tus equipos.</p>
           </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label for="aiRecipeSlotSelect" class="block text-[11px] font-bold text-slate-600 mb-1">🎯 Toma del día</label>
+              <select id="aiRecipeSlotSelect" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="almuerzo">🍽️ Almuerzo</option>
+                <option value="cena">🌙 Cena</option>
+                <option value="desayuno">☕ Desayuno</option>
+                <option value="merienda">🥪 Merienda</option>
+              </select>
+            </div>
+            <div>
+              <label for="aiRecipeDinersSelect" class="block text-[11px] font-bold text-slate-600 mb-1">👥 Para quién</label>
+              <select id="aiRecipeDinersSelect" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold">
+                <option value="both">👩‍❤️‍👨 Compartido (Nando + Noelia)</option>
+                <option value="nando">👨 Solo Nando (2.230 kcal)</option>
+                <option value="noelia">👩 Solo Noelia (1.600 kcal · Sin lactosa)</option>
+              </select>
+            </div>
+          </div>
+
           <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">👥 Comensales a calcular</label>
-            <select id="aiRecipeDinersSelect" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"></select>
+            <label for="aiRecipeIngredientsInput" class="block text-[11px] font-bold text-slate-600 mb-1">🥦 Ingredientes disponibles</label>
+            <textarea id="aiRecipeIngredientsInput" rows="2" placeholder="Ej: huevos, boniato, calabacín, crema de calabaza..."
+              class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs"></textarea>
           </div>
+
           <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">⚡ Estilo / Preferencia (opcional)</label>
-            <input type="text" id="aiRecipeStyleInput" placeholder="Ej. Rápido en 15 min, cremoso, crujiente..."
-              class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800" />
+            <label for="aiRecipeStyleInput" class="block text-[11px] font-bold text-slate-600 mb-1">👨‍🍳 Estilo o equipo preferido (opcional)</label>
+            <input type="text" id="aiRecipeStyleInput" placeholder="Ej: rápido en Airfryer, cremoso en Mambo, tipo wok..."
+              class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs" />
           </div>
+
+          <div class="flex justify-end">
+            <button type="button" id="btnGenerateAIRecipe" onclick="generateAIRecipe()"
+              class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
+              ✨ Calcular Gramos y Crear Receta
+            </button>
+          </div>
+
+          <div id="aiRecipeResultBox" class="hidden pt-1"></div>
         </div>
+      </div>
+    </section>
 
-        <div>
-          <label class="block text-[11px] font-bold text-slate-600 mb-1">🧺 Ingredientes que tienes disponibles (cualquier alimento)</label>
-          <textarea id="aiRecipeIngredientsInput" rows="2"
-            placeholder="Ej. Jamoncitos de pollo, boniato, espinacas frescas, tomate triturado..."
-            class="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3 text-xs text-slate-800 focus:outline-none focus:border-emerald-600"></textarea>
-        </div>
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 3: LISTA DE LA COMPRA AUTOMÁTICA POR CATEGORÍAS              -->
+    <!-- ==================================================================== -->
+    <section id="view-shopping" class="hidden space-y-3">
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-3.5 shadow-sm space-y-3">
 
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <span class="text-[11px] text-slate-500">
-            Equipos activos: <b id="activeAppliancesInline" class="text-slate-700"></b>
-          </span>
-          <button onclick="generateAIRecipe()" id="btnGenerateAIRecipe"
-            class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm flex items-center gap-2">
-            ✨ Calcular Gramos y Crear Receta con IA
+        <!-- Cabecera + Navegador de semana enlazado en vivo al Plan Semanal -->
+        <div class="flex items-center justify-between gap-2">
+          <button type="button" onclick="changeWeek(-1)" aria-label="Semana anterior"
+            class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center transition-colors">
+            ‹
+          </button>
+          <div class="text-center min-w-0 flex-1">
+            <div class="flex items-center justify-center gap-1.5">
+              <h2 class="text-sm font-black text-slate-900">🛒 Lista de la Compra</h2>
+              <span id="shoppingProgressBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">0/0</span>
+            </div>
+            <p id="shoppingWeekLabel" class="text-[10.5px] font-semibold text-slate-500 truncate">Calculada automáticamente desde tu Plan Semanal</p>
+          </div>
+          <button type="button" onclick="changeWeek(1)" aria-label="Semana siguiente"
+            class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black flex items-center justify-center transition-colors">
+            ›
           </button>
         </div>
 
-        <!-- Resultado de la IA -->
-        <div id="aiRecipeResultBox" class="hidden pt-3 border-t border-slate-200 space-y-3"></div>
+        <!-- Selector de perfil + acciones rápidas -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="inline-flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
+            <button type="button" id="shopScope-both" onclick="setShoppingScope('both')"
+              class="py-1 px-2.5 rounded-lg text-[11px] font-extrabold bg-slate-900 text-white shadow-sm">
+              👩‍❤️‍👨 Ambos
+            </button>
+            <button type="button" id="shopScope-nando" onclick="setShoppingScope('nando')"
+              class="py-1 px-2.5 rounded-lg text-[11px] font-extrabold text-slate-600">
+              👨 Nando
+            </button>
+            <button type="button" id="shopScope-noelia" onclick="setShoppingScope('noelia')"
+              class="py-1 px-2.5 rounded-lg text-[11px] font-extrabold text-slate-600">
+              👩 Noelia
+            </button>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="copyShoppingListToClipboard()"
+              class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-extrabold transition-colors">
+              📋 Copiar
+            </button>
+            <button type="button" onclick="clearShoppingChecks()"
+              class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-extrabold transition-colors">
+              ↺ Desmarcar
+            </button>
+          </div>
+        </div>
       </div>
 
-      <!-- Biblioteca de Platos Guardados del Perfil -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
+      <!-- Listado agrupado por categorías (actualizado automáticamente con cada cambio del Plan) -->
+      <div id="shoppingListContainer" class="space-y-2.5"></div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 4: DESFASES (DINÁMICO A 2.230 KCAL NANDO / 1.600 KCAL NOELIA)-->
+    <!-- ==================================================================== -->
+    <section id="view-deviations" class="hidden space-y-3">
+
+      <!-- Resumen dinámico de presupuesto semanal y objetivo real del perfil -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 class="text-sm font-extrabold text-slate-900">📚 Recetario del Perfil Activo</h3>
-            <p class="text-[11px] text-slate-500">Pulsa cualquier plato para ver la preparación detallada en tus equipos y calcular reparto cocinado.</p>
+            <h2 class="text-sm font-black text-slate-900">🍔 Control de Desfases y Adherencia</h2>
+            <p class="text-[11px] text-slate-500">Calculado en vivo sobre las calorías reales de tu plan activo.</p>
           </div>
-          <select id="recipeFilterSlot" onchange="renderRecipesLibrary()" class="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700">
-            <option value="all">Todas las tomas</option>
+          <select id="devUserSelect" onchange="renderDeviationsTab()"
+            class="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-extrabold text-slate-800">
+            <option value="nando">👨 Nando</option>
+            <option value="noelia">👩 Noelia</option>
           </select>
         </div>
-        <div id="recipesLibraryGrid" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+
+        <!-- Tarjeta dinámica de objetivos (2.230 kcal Nando / 1.600 kcal Noelia) -->
+        <div id="devTargetBanner" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+
+        <!-- Balance semanal y recomendación de ajuste -->
+        <div id="devWeeklyBalanceBox" class="rounded-2xl bg-slate-50 border border-slate-200/80 p-3 text-xs"></div>
       </div>
-    </section>
 
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 3: NECESIDADES DE COMPRA (DIARIA, SEMANAL, MENSUAL x4)      -->
-    <!-- =================================================================== -->
-    <section id="view-shopping" class="hidden space-y-3">
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+      <!-- Formulario de registro (IA rápida o manual) -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
+        <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Registrar comida fuera o extra</h3>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div>
-            <h2 class="text-base font-extrabold text-slate-900">🛒 Necesidades de Compra (Sin Precios)</h2>
-            <p class="text-xs text-slate-500">Cálculo exacto de cantidades en crudo según el menú configurado.</p>
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            <button onclick="copyShoppingListWhatsApp()" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
-              📋 Copiar Lista para WhatsApp / Notas
-            </button>
-            <button onclick="resetShoppingChecks()" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">
-              ↺ Desmarcar Todo
-            </button>
-          </div>
-        </div>
-
-        <!-- Selector de Horizonte: Diaria / Semanal / Mensual (x4) -->
-        <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200">
-          <div class="flex gap-1">
-            <button onclick="setShoppingHorizon('daily')" id="shopHor-daily" class="px-3 py-1.5 rounded-xl text-xs font-extrabold bg-slate-900 text-white">
-              📆 Compra Diaria
-            </button>
-            <button onclick="setShoppingHorizon('weekly')" id="shopHor-weekly" class="px-3 py-1.5 rounded-xl text-xs font-extrabold bg-white text-slate-700 border border-slate-200">
-              🗓️ Semanal (7 días)
-            </button>
-            <button onclick="setShoppingHorizon('monthly')" id="shopHor-monthly" class="px-3 py-1.5 rounded-xl text-xs font-extrabold bg-white text-slate-700 border border-slate-200">
-              📦 Mensual (×4)
-            </button>
-          </div>
-
-          <!-- Sub-selector para Compra Diaria (Hoy / Mañana / Fecha) -->
-          <div id="dailyShoppingControls" class="flex items-center gap-1.5 flex-wrap">
-            <button onclick="setDailyShopTarget('today')" id="btnShopToday" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">Hoy</button>
-            <button onclick="setDailyShopTarget('tomorrow')" id="btnShopTomorrow" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-600 border border-slate-200">Mañana</button>
-            <input type="date" id="shopSpecificDateInput" onchange="setDailyShopTarget('custom')"
-              class="bg-white border border-slate-300 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-700" />
-          </div>
-        </div>
-
-        <div id="shoppingScopeSubtitle" class="text-xs font-bold text-slate-600 px-1"></div>
-        <div id="shoppingCategoriesContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
-      </div>
-    </section>
-
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 4: REGISTRO RETROACTIVO DE DESFASES CON IA                  -->
-    <!-- =================================================================== -->
-    <section id="view-deviations" class="hidden space-y-3">
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <div>
-          <span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-            Cálculo Automático con Gemini AI
-          </span>
-          <h2 class="text-base font-extrabold text-slate-900 mt-1">🍔 Registrar Desfase / Comida Fuera de Plan</h2>
-          <p class="text-xs text-slate-500">Indica el día (hoy o cualquier día pasado), la toma y describe lo que tomaste. La IA calculará las calorías y macros y actualizará tus contadores diario y semanal.</p>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">👤 Comensal</label>
-            <select id="devUserSelect" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"></select>
+            <label for="devDateInput" class="block text-[11px] font-bold text-slate-600 mb-1">📅 Fecha</label>
+            <input type="date" id="devDateInput" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold" />
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">📅 Fecha del desfase</label>
-            <input type="date" id="devDateInput" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800" />
+            <label for="devSlotSelect" class="block text-[11px] font-bold text-slate-600 mb-1">🍽️ Toma sustituida</label>
+            <select id="devSlotSelect" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold">
+              <option value="extra">Extra (sin sustituir toma)</option>
+              <option value="cena">Sustituye Cena</option>
+              <option value="almuerzo">Sustituye Almuerzo</option>
+              <option value="desayuno">Sustituye Desayuno</option>
+              <option value="merienda">Sustituye Merienda</option>
+            </select>
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">🕒 Momento / Toma</label>
-            <select id="devSlotSelect" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"></select>
+            <label for="devManualKcal" class="block text-[11px] font-bold text-slate-600 mb-1">🔥 Kcal estimadas (opcional)</label>
+            <input type="number" id="devManualKcal" placeholder="Ej. 950 (o usa IA)"
+              class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold" />
           </div>
-        </div>
-
-        <!-- Interruptor Rápido: Sustituye a la toma vs Extra añadido -->
-        <div class="bg-slate-50 p-2 rounded-2xl border border-slate-200 flex flex-col sm:flex-row gap-2">
-          <label class="flex-1 flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 cursor-pointer">
-            <input type="radio" name="devMode" value="replace" checked class="accent-emerald-600 w-4 h-4" />
-            <div>
-              <span class="text-xs font-extrabold text-slate-900 block">🔄 Sustituye a la toma del plan</span>
-              <span class="text-[10px] text-slate-500">Resta los macros de la comida planificada y suma este desfase.</span>
-            </div>
-          </label>
-          <label class="flex-1 flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 cursor-pointer">
-            <input type="radio" name="devMode" value="extra" class="accent-amber-600 w-4 h-4" />
-            <div>
-              <span class="text-xs font-extrabold text-slate-900 block">➕ Es un extra añadido</span>
-              <span class="text-[10px] text-slate-500">Suma estas calorías y macros directamente al total del día.</span>
-            </div>
-          </label>
         </div>
 
         <div>
-          <label class="block text-[11px] font-bold text-slate-600 mb-1">📝 ¿Qué tomaste exactamente?</label>
-          <input type="text" id="devDescriptionInput" placeholder="Ej. 2 cervezas, un pincho de pollo y una hamburguesa completa con patatas"
-            class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600" />
+          <label for="devDescriptionInput" class="block text-[11px] font-bold text-slate-600 mb-1">📝 Qué comiste o bebiste</label>
+          <textarea id="devDescriptionInput" rows="2" placeholder="Ej: Hamburguesa completa con patatas fritas y 1 cerveza..."
+            class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs"></textarea>
         </div>
 
-        <div class="flex justify-end">
-          <button onclick="registerDeviationWithAI()" id="btnSaveDeviationAI"
-            class="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm">
-            ⚡ Calcular Macros con IA y Registrar Desfase
+        <div class="flex flex-wrap justify-end gap-2">
+          <button type="button" onclick="saveManualDeviation()"
+            class="px-3.5 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold">
+            💾 Guardar Manual
+          </button>
+          <button type="button" id="btnAnalyzeDeviationAI" onclick="analyzeDeviationWithAI()"
+            class="px-4 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm">
+            ⚡ Calcular Impacto y Compensación con IA
           </button>
         </div>
       </div>
 
-      <!-- Histórico de Desfases -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-2.5">
+      <!-- Histórico de desfases -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-2.5">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-extrabold text-slate-900">📋 Desfases Registrados</h3>
-          <span id="devCountBadge" class="text-[11px] font-bold text-slate-500">0 registros</span>
+          <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Histórico de Desfases</h3>
+          <span id="devCountBadge" class="text-[11px] font-bold text-slate-400">0 registros</span>
         </div>
-        <div id="deviationsHistoryList" class="space-y-2"></div>
+        <div id="deviationsListContainer" class="space-y-2"></div>
       </div>
     </section>
 
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 5: SEGUIMIENTO CLÍNICO PARA REVISIÓN DEL NUTRICIONISTA       -->
-    <!-- =================================================================== -->
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 5: REVISIÓN CLÍNICA (VARIACIONES, VEREDICTO Y PDF EN DRIVE)  -->
+    <!-- ==================================================================== -->
     <section id="view-clinical" class="hidden space-y-3">
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
+
+      <!-- Cabecera + Selector + Veredicto automático -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 class="text-base font-extrabold text-slate-900">📏 Seguimiento Corporal y Revisión Nutricionista</h2>
-            <p class="text-xs text-slate-500">Histórico de peso, media de pasos diarios y perímetros corporales (incluyendo bíceps y cuádriceps bilaterales).</p>
+            <h2 class="text-sm font-black text-slate-900">📏 Revisión Clínica y Evolución</h2>
+            <p class="text-[11px] text-slate-500">Datos oficiales importados desde tu archivo maestro <code class="font-bold text-slate-700">.json</code>.</p>
           </div>
-          <button onclick="printClinicalReviewPDF()" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm">
-            🩺 PDF Revisión Nutricionista (1 Hoja)
-          </button>
+          <div class="flex items-center gap-1.5">
+            <select id="clinUserSelect" onchange="renderClinicalTab()"
+              class="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-extrabold text-slate-800">
+              <option value="nando">👨 Nando</option>
+              <option value="noelia">👩 Noelia</option>
+            </select>
+            <a id="clinicalPdfDriveBtn" href="#" target="_blank" rel="noopener noreferrer"
+              class="hidden px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-extrabold whitespace-nowrap">
+              📄 Ver PDF
+            </a>
+          </div>
         </div>
 
-        <!-- Formulario Nuevo Control -->
-        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2.5">
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div>
-              <label class="block text-[10.5px] font-bold text-slate-600 mb-1">👤 Perfil</label>
-              <select id="clinUserSelect" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold"></select>
-            </div>
-            <div>
-              <label class="block text-[10.5px] font-bold text-slate-600 mb-1">📅 Fecha control</label>
-              <input type="date" id="clinDateInput" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10.5px] font-bold text-slate-600 mb-1">⚖️ Peso (kg)</label>
-              <input type="number" step="0.1" id="clinWeightInput" placeholder="78.4" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10.5px] font-bold text-slate-600 mb-1">👟 Media pasos/día</label>
-              <input type="number" id="clinStepsInput" placeholder="10500" class="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold" />
-            </div>
-          </div>
+        <!-- Tarjeta de Veredicto Clínico + Variaciones -->
+        <div id="clinicalVerdictCard" class="space-y-2.5"></div>
+      </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-1">
-            <div>
-              <label class="block text-[10px] font-bold text-slate-600 mb-1">Cintura (cm)</label>
-              <input type="number" step="0.1" id="clinWaistInput" placeholder="82.0" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-slate-600 mb-1">Cadera (cm)</label>
-              <input type="number" step="0.1" id="clinHipInput" placeholder="96.0" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-slate-600 mb-1">Pecho (cm)</label>
-              <input type="number" step="0.1" id="clinChestInput" placeholder="101.0" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-indigo-700 mb-1">Bíceps Izq (cm)</label>
-              <input type="number" step="0.1" id="clinBicepsLInput" placeholder="34.5" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-indigo-700 mb-1">Bíceps Der (cm)</label>
-              <input type="number" step="0.1" id="clinBicepsRInput" placeholder="35.0" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-emerald-700 mb-1">Cuádriceps Izq</label>
-              <input type="number" step="0.1" id="clinQuadLInput" placeholder="56.0" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-bold text-emerald-700 mb-1">Cuádriceps Der</label>
-              <input type="number" step="0.1" id="clinQuadRInput" placeholder="56.5" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs font-bold" />
-            </div>
-          </div>
+      <!-- Histórico completo de revisiones -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Histórico de Mediciones (Jackson &amp; Pollock 7 Pliegues)</h3>
+          <button type="button" onclick="switchTab('settings')" class="text-[11px] font-extrabold text-indigo-600 hover:underline">
+            ⬆️ Actualizar vía JSON
+          </button>
+        </div>
+        <div id="clinicalHistoryContainer" class="space-y-2.5 overflow-x-auto"></div>
+      </div>
 
-          <div class="flex justify-end pt-1">
-            <button onclick="saveClinicalRecord()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
-              💾 Guardar Medición
+      <!-- Control rápido plegable (por si quieres apuntar un peso intermedio en casa) -->
+      <details class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm">
+        <summary class="flex items-center justify-between cursor-pointer">
+          <span class="text-xs font-extrabold text-slate-700">➕ Añadir control rápido manual (peso / pasos en casa)</span>
+          <span class="chev-icon text-slate-400 text-xs">▼</span>
+        </summary>
+        <div class="pt-3 mt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <div>
+            <label for="clinDateInput" class="block text-[10.5px] font-bold text-slate-500 mb-1">Fecha</label>
+            <input type="date" id="clinDateInput" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold" />
+          </div>
+          <div>
+            <label for="clinWeightInput" class="block text-[10.5px] font-bold text-slate-500 mb-1">Peso (kg)</label>
+            <input type="number" step="0.1" id="clinWeightInput" placeholder="95.4" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold" />
+          </div>
+          <div>
+            <label for="clinFatInput" class="block text-[10.5px] font-bold text-slate-500 mb-1">% Grasa</label>
+            <input type="number" step="0.01" id="clinFatInput" placeholder="21.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold" />
+          </div>
+          <div>
+            <label for="clinStepsInput" class="block text-[10.5px] font-bold text-slate-500 mb-1">Pasos/día</label>
+            <input type="number" id="clinStepsInput" placeholder="10000" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold" />
+          </div>
+          <div class="col-span-2 sm:col-span-1 flex items-end">
+            <button type="button" onclick="addManualClinicalRecord()"
+              class="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold">
+              Guardar
             </button>
           </div>
         </div>
-
-        <!-- Tabla Histórico Clínico -->
-        <div id="clinicalHistoryContainer" class="overflow-x-auto"></div>
-      </div>
+      </details>
     </section>
 
-    <!-- =================================================================== -->
-    <!-- PESTAÑA 6: IMPORTADOR PDF NUTRICIONISTA, PERFILES, EQUIPOS Y NUBE   -->
-    <!-- =================================================================== -->
-    <section id="view-settings" class="hidden space-y-4">
-      <!-- 1. Importador Inteligente del Plan del Nutricionista -->
+    <!-- ==================================================================== -->
+    <!-- PESTAÑA 6: AJUSTES (VISOR PDFs DRIVE + PUERTA ÚNICA JSON + NUBE)     -->
+    <!-- ==================================================================== -->
+    <section id="view-settings" class="hidden space-y-3">
+
+      <!-- Bloque 1: Biblioteca de PDFs Oficiales en Google Drive -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
+        <div>
+          <h2 class="text-sm font-black text-slate-900">📂 Planes, Recetarios y Revisiones (PDF Completo)</h2>
+          <p class="text-[11px] text-slate-500">Acceso directo privado a tus PDFs en <span class="font-bold text-slate-700">Google Drive / Gemini / NutrIA</span> con lectura completa y zoom fluido en iPhone.</p>
+        </div>
+
+        <div id="settingsPdfLinksGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+
+        <!-- Hojas imprimibles del menú semanal -->
+        <div class="pt-2 border-t border-slate-100 space-y-2">
+          <div class="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">🖨️ Imprimir Menú Semanal Actual</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button type="button" onclick="printMealsPDF()"
+              class="py-2 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
+              📄 Hoja Comidas y Cenas (1 Hoja)
+            </button>
+            <button type="button" onclick="printBreakfastSnacksPDF()"
+              class="py-2 px-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-sm">
+              ☕ Hoja Desayunos y Meriendas
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bloque 2: Equipamiento de Cocina -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-2.5">
+        <div>
+          <h3 class="text-sm font-black text-slate-900">🍳 Equipamiento de Cocina Activo</h3>
+          <p class="text-[11px] text-slate-500">Se utiliza al redactar pasos con IA y adaptar tiempos.</p>
+        </div>
+        <div id="settingsAppliancesList" class="space-y-1.5"></div>
+      </div>
+
+      <!-- Bloque 3: Puerta Única de Datos (.JSON Maestro) -->
       <div class="bg-white rounded-3xl border-2 border-emerald-200 p-4 shadow-sm space-y-3">
         <div class="flex items-start justify-between gap-2">
           <div>
-            <span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-              Onboarding Automático con Gemini AI
+            <span class="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Actualización Instantánea
             </span>
-            <h2 class="text-base font-extrabold text-slate-900 mt-1">📄 Importar Plan del Nutricionista (PDF, Foto o Texto)</h2>
-            <p class="text-xs text-slate-500">Sube el archivo que te envíe tu nutricionista. La IA extraerá tus calorías, macros por toma, tomas dinámicas del día, exclusiones digestivas y platos base, actualizando automáticamente el perfil seleccionado.</p>
+            <h3 class="text-sm font-black text-slate-900 mt-1">📦 Base de Datos JSON (Planes, Recetas y Revisiones)</h3>
+            <p class="text-[11px] text-slate-500">Importa aquí el archivo <code class="font-bold text-slate-700">NutriPlan_Maestro_vX.json</code> de tu carpeta <span class="font-bold">05_Datos_App_JSON</span>. Conserva intacta tu API Key y tu conexión de Firebase.</p>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1">👤 Perfil a actualizar con este plan:</label>
-            <select id="importTargetUserSelect" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"></select>
-          </div>
-          <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1">📎 Subir PDF o Imagen de la Dieta:</label>
-            <input type="file" id="planFileInput" accept=".pdf,image/*"
-              class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white" />
-          </div>
+        <div id="jsonStatusSummary" class="rounded-2xl bg-slate-50 border border-slate-200/80 px-3 py-2 text-[11px] font-semibold text-slate-600">
+          Cargando estado de base de datos...
         </div>
 
-        <div>
-          <label class="block text-[11px] font-bold text-slate-700 mb-1">📝 O pega aquí el texto / pautas de la dieta (opcional si subes archivo):</label>
-          <textarea id="planRawTextInput" rows="3" placeholder="Pega aquí las pautas o notas si lo prefieres en texto..."
-            class="w-full bg-slate-50 border border-slate-300 rounded-2xl p-2.5 text-xs text-slate-800"></textarea>
-        </div>
-
-        <div class="flex items-center justify-between gap-2">
-          <span id="importPlanStatusMsg" class="text-xs font-bold text-emerald-700"></span>
-          <button onclick="importNutritionistPlanWithAI()" id="btnImportPlanAI"
-            class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
-            🚀 Analizar Plan y Actualizar App
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label class="flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer shadow-sm transition-colors">
+            ⬆️ Importar Archivo JSON
+            <input type="file" id="jsonImportInput" accept=".json,application/json" onchange="importBackupJSON(event)" class="hidden" />
+          </label>
+          <button type="button" onclick="exportBackupJSON()"
+            class="py-2.5 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold transition-colors">
+            ⬇️ Exportar Copia JSON
           </button>
         </div>
       </div>
 
-      <!-- 2. Modo de Uso (Individual vs Pareja) y Edición Manual de Macros -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <h3 class="text-sm font-extrabold text-slate-900">👥 Modo de Uso y Objetivos Nutricionales</h3>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
-          <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer">
-            <input type="radio" name="appModeRadio" value="couple" onchange="setAppUsageMode('couple')" class="accent-slate-900 w-4 h-4" />
-            <div>
-              <span class="text-xs font-extrabold text-slate-900 block">👩‍❤️‍👨 Modo Pareja / Hogar (Nando & Noelia)</span>
-              <span class="text-[10.5px] text-slate-500">Perfiles aislados con calendario semanal sincronizado y Visión Conjunta.</span>
-            </div>
-          </label>
-          <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer">
-            <input type="radio" name="appModeRadio" value="individual" onchange="setAppUsageMode('individual')" class="accent-slate-900 w-4 h-4" />
-            <div>
-              <span class="text-xs font-extrabold text-slate-900 block">👤 Modo Individual</span>
-              <span class="text-[10.5px] text-slate-500">Oculta toda la interfaz de pareja y reparto en 2 platos.</span>
-            </div>
-          </label>
-        </div>
-
-        <!-- Editor de Macros y Restricciones del Perfil Seleccionado -->
-        <div id="manualMacrosEditorBox" class="space-y-2.5 pt-2"></div>
-      </div>
-
-      <!-- 3. Equipamiento de Cocina (Personalizable por usuario) -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-2.5">
-        <h3 class="text-sm font-extrabold text-slate-900">🍳 Equipamiento de Cocina Registrado</h3>
-        <p class="text-xs text-slate-500">La IA adaptará tiempos, temperaturas y accesorios de cada receta exclusivamente a los equipos marcados aquí.</p>
-        <div id="appliancesManagerList" class="space-y-1.5"></div>
-        <div class="flex gap-2 pt-1">
-          <input type="text" id="newApplianceInput" placeholder="Añadir otro equipo (ej. Olla exprés, Plancha eléctrica...)"
-            class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs" />
-          <button onclick="addNewAppliance()" class="px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">+ Añadir</button>
-        </div>
-      </div>
-
-      <!-- 4. API Key Gratuita de Gemini + Sincronización Firebase en Tiempo Real -->
-      <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <h3 class="text-sm font-extrabold text-slate-900">🔑 API Key Gemini (Gratuita) y Sincronización Nube (Firebase)</h3>
-        <p class="text-xs text-slate-500">Al guardar tu clave gratuita de Google AI Studio y la URL de tu Firebase Realtime Database, se sincronizan automáticamente para que ambos móviles vean exactamente el mismo menú semanal y usen la IA sin configurar dos veces.</p>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1">✨ Google Gemini API Key (AI Studio):</label>
-            <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..."
-              class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono" />
-          </div>
-          <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1">🏠 Código de Hogar Compartido:</label>
-            <input type="text" id="firebaseRoomInput" placeholder="hogar_nando_noelia"
-              class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono" />
-          </div>
-        </div>
-
+      <!-- Bloque 4: Conexión Nube Firebase y API Key Gemini -->
+      <div class="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
         <div>
-          <label class="block text-[11px] font-bold text-slate-700 mb-1">☁️ Firebase Realtime Database URL (ej. https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app):</label>
-          <input type="text" id="firebaseDbUrlInput" placeholder="https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app"
-            class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono" />
+          <h3 class="text-sm font-black text-slate-900">🔑 Conexión Nube (Firebase) y Gemini AI</h3>
+          <p class="text-[11px] text-slate-500">Sincroniza automáticamente cada cambio del plan, la compra y los desfases en todos vuestros dispositivos.</p>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
-          <div class="flex gap-2">
-            <button onclick="exportBackupJSON()" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">
-              ⬇️ Exportar Copia JSON
-            </button>
-            <label class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer">
-              ⬆️ Importar Copia JSON
-              <input type="file" accept=".json" onchange="importBackupJSON(event)" class="hidden" />
-            </label>
+        <div class="space-y-2.5">
+          <div>
+            <label for="geminiApiKeyInput" class="block text-[11px] font-bold text-slate-600 mb-1">Gemini API Key (Google AI Studio)</label>
+            <input type="password" id="geminiApiKeyInput" autocomplete="off" placeholder="AIzaSy..."
+              class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-mono" />
           </div>
-          <button onclick="saveConnectionsSettings()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div class="sm:col-span-2">
+              <label for="firebaseDbUrlInput" class="block text-[11px] font-bold text-slate-600 mb-1">Firebase Realtime Database URL</label>
+              <input type="url" id="firebaseDbUrlInput" placeholder="https://nutricion-8aeb1-default-rtdb.europe-west1.firebasedatabase.app"
+                class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-mono" />
+            </div>
+            <div>
+              <label for="firebaseRoomInput" class="block text-[11px] font-bold text-slate-600 mb-1">Código de Hogar</label>
+              <input type="text" id="firebaseRoomInput" placeholder="hogar_nando_noelia"
+                class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-bold" />
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 pt-1">
+          <button type="button" onclick="saveConnectionsSettings()"
+            class="flex-1 py-2.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
             💾 Guardar Conexiones y Sincronizar
+          </button>
+          <button type="button" onclick="pullFromFirebaseManual()"
+            class="py-2.5 px-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold">
+            🔄 Traer de Nube
           </button>
         </div>
       </div>
@@ -508,2132 +692,106 @@
 
   </main>
 
-  <!-- ===================================================================== -->
-  <!-- MODAL: DETALLE DE RECETA EN EQUIPOS (1 O 2 PERSONAS + REPARTO PLATOS) -->
-  <!-- ===================================================================== -->
-  <div id="recipeDetailModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 no-print">
-    <div class="bg-white w-full max-w-2xl rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col space-y-3">
-      <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-        <div>
-          <span id="modalDishTag" class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Receta</span>
-          <h3 id="modalDishTitle" class="text-base font-extrabold text-slate-900 mt-1">Título del Plato</h3>
+  <!-- ====================================================================== -->
+  <!-- BARRA DE NAVEGACIÓN INFERIOR ELEVADA (6 PESTAÑAS)                      -->
+  <!-- ====================================================================== -->
+  <nav id="mobileBottomNav"
+    class="fixed left-2.5 right-2.5 z-40 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-3xl shadow-[0_8px_28px_rgba(15,23,42,0.14)] no-print"
+    style="bottom: calc(12px + var(--safe-bottom));">
+    <div class="max-w-4xl mx-auto grid grid-cols-6 gap-1 px-1.5 py-1.5">
+      <button type="button" id="bnav-planner" onclick="switchTab('planner')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 bg-slate-900 text-white shadow-sm">
+        <span class="text-base leading-none mb-1">🗓️</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Plan</span>
+      </button>
+      <button type="button" id="bnav-recipes" onclick="switchTab('recipes')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 text-slate-500 hover:bg-slate-100">
+        <span class="text-base leading-none mb-1">🍳</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Platos</span>
+      </button>
+      <button type="button" id="bnav-shopping" onclick="switchTab('shopping')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 text-slate-500 hover:bg-slate-100">
+        <span class="text-base leading-none mb-1">🛒</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Compra</span>
+      </button>
+      <button type="button" id="bnav-deviations" onclick="switchTab('deviations')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 text-slate-500 hover:bg-slate-100">
+        <span class="text-base leading-none mb-1">🍔</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Desfases</span>
+      </button>
+      <button type="button" id="bnav-clinical" onclick="switchTab('clinical')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 text-slate-500 hover:bg-slate-100">
+        <span class="text-base leading-none mb-1">📏</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Revisión</span>
+      </button>
+      <button type="button" id="bnav-settings" onclick="switchTab('settings')"
+        class="flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-150 text-slate-500 hover:bg-slate-100">
+        <span class="text-base leading-none mb-1">⚙️</span>
+        <span class="text-[10px] font-extrabold tracking-tight leading-none">Ajustes</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 1: DETALLE DE RECETA, MACROS, PESOS EN CRUDO Y PASOS             -->
+  <!-- ====================================================================== -->
+  <div id="recipeDetailModal" onclick="if(event.target===this) closeRecipeModal()"
+    class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+    <div class="modal-panel bg-white w-full max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="flex items-start justify-between gap-3 px-4 py-3.5 border-b border-slate-100">
+        <div class="min-w-0">
+          <div id="recipeModalBadges" class="flex flex-wrap items-center gap-1.5 mb-1"></div>
+          <h3 id="recipeModalTitle" class="text-sm sm:text-base font-black text-slate-900 leading-snug">Receta</h3>
         </div>
-        <button onclick="closeRecipeModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700">✕</button>
+        <button type="button" onclick="closeRecipeModal()" aria-label="Cerrar"
+          class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center flex-shrink-0">
+          ✕
+        </button>
       </div>
-
-      <!-- Selector 1 o 2 personas dentro del Modal -->
-      <div id="modalDinersToggleBar" class="flex gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200"></div>
-
-      <div id="modalRecipeBody" class="flex-1 overflow-y-auto space-y-3 pr-1 text-xs"></div>
-
-      <div class="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-        <div id="modalAssignSlotControls" class="flex items-center gap-1.5 flex-wrap"></div>
-        <button onclick="closeRecipeModal()" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold">Cerrar</button>
-      </div>
+      <div id="recipeModalBody" class="p-4 overflow-y-auto space-y-3.5 flex-1"></div>
     </div>
   </div>
 
-  <!-- ===================================================================== -->
-  <!-- MODAL: CAMBIAR PLATO EN UNA TOMA DEL CALENDARIO                       -->
-  <!-- ===================================================================== -->
-  <div id="slotPickerModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 no-print">
-    <div class="bg-white w-full max-w-lg rounded-3xl p-4 shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col space-y-3">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-        <div>
-          <h3 id="slotPickerTitle" class="text-sm font-extrabold text-slate-900">Seleccionar Plato</h3>
-          <p id="slotPickerSubtitle" class="text-[11px] text-slate-500">Elige un plato de tu recetario para esta toma</p>
+  <!-- ====================================================================== -->
+  <!-- MODAL 2: SELECTOR DE PLATO (INDIVIDUAL Y VISIÓN CONJUNTA)              -->
+  <!-- ====================================================================== -->
+  <div id="slotPickerModal" onclick="if(event.target===this) closeSlotPickerModal()"
+    class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 no-print">
+    <div class="modal-panel bg-white w-full max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 max-h-[88vh] flex flex-col overflow-hidden">
+      <div class="px-4 py-3.5 border-b border-slate-100 space-y-2.5">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h3 id="slotPickerTitle" class="text-sm font-black text-slate-900">Cambiar Plato</h3>
+            <p id="slotPickerSubtitle" class="text-[11px] font-semibold text-slate-500">Elige una opción válida para esta toma</p>
+          </div>
+          <button type="button" onclick="closeSlotPickerModal()" aria-label="Cerrar"
+            class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center flex-shrink-0">
+            ✕
+          </button>
         </div>
-        <button onclick="closeSlotPickerModal()" class="w-8 h-8 rounded-full bg-slate-100 font-bold">✕</button>
+
+        <!-- Filtro de destinatario y buscador dentro del selector -->
+        <div id="slotPickerFilterBar" class="hidden grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl"></div>
+        <input type="search" id="slotPickerSearchInput" oninput="filterSlotPickerList()"
+          placeholder="🔍 Filtrar plato..."
+          class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-900/15" />
       </div>
-      <div id="slotPickerList" class="flex-1 overflow-y-auto space-y-2 pr-1"></div>
+
+      <div id="slotPickerList" class="p-3 overflow-y-auto space-y-1.5 flex-1"></div>
     </div>
   </div>
 
-  <!-- ===================================================================== -->
-  <!-- LÓGICA COMPLETA DE LA APLICACIÓN                                      -->
-  <!-- ===================================================================== -->
-  <script>
-    const DAYS_NAMES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-    const STORAGE_KEY = "nutriplan_ai_v2_state";
-
-    // =========================================================================
-    // 1. ESTADO INICIAL PRECARGADO (NOELIA REAL + BASE NANDO + EQUIPOS)
-    // =========================================================================
-    const DEFAULT_STATE = {
-      settings: {
-        mode: "couple", // "couple" | "individual"
-        activeViewProfile: "nando", // "nando" | "noelia" | "joint"
-        geminiApiKey: "",
-        firebaseDbUrl: "",
-        firebaseRoom: "hogar_nando_noelia",
-        appliances: [
-          { id: "mambo", name: "Cecotec Mambo 10090 (Jarra Inox, Jarra Habana + MamboMix, Vaporera)", active: true },
-          { id: "teka", name: "Horno compacto Teka HSC 635 (Convección / Turbina)", active: true },
-          { id: "airfryer", name: "Airfryer Aigostar 3,5L", active: true },
-          { id: "micro", name: "Microondas LG Smart Inverter MH6535GDS (Steam Chef)", active: true },
-          { id: "vitro", name: "Vitrocerámica + Wok / Sartén", active: true }
-        ]
-      },
-      profiles: {
-        noelia: {
-          id: "noelia",
-          name: "Noelia",
-          emoji: "👩",
-          color: "emerald",
-          dailyTarget: { kcal: 1600, p: 136, hc: 158, g: 40 },
-          restrictions: "Sin lactosa (lácteos siempre 0% sin lactosa). Control estricto de fructosa/FODMAP: evitar cebolla, ajo, manzana, pera, espárragos y exceso de tomate concentrado.",
-          slots: [
-            { id: "desayuno", name: "Desayuno", icon: "☕", isMainMeal: false, target: { kcal: 300, p: 20, hc: 30, g: 10 } },
-            { id: "almuerzo", name: "Almuerzo", icon: "🍽️", isMainMeal: true, target: { kcal: 511, p: 48, hc: 44, g: 13 } },
-            { id: "merienda", name: "Merienda", icon: "🥪", isMainMeal: false, target: { kcal: 200, p: 20, hc: 20, g: 4 } },
-            { id: "cena", name: "Cena", icon: "🌙", isMainMeal: true, target: { kcal: 511, p: 48, hc: 44, g: 13 } },
-            { id: "comodin", name: "Comodín", icon: "🍓", isMainMeal: false, target: { kcal: 80, p: 1, hc: 20, g: 0 } }
-          ]
-        },
-        nando: {
-          id: "nando",
-          name: "Nando",
-          emoji: "👨",
-          color: "indigo",
-          dailyTarget: { kcal: 2000, p: 165, hc: 215, g: 52 },
-          restrictions: "Sin intolerancias (cuando cocine junto con Noelia, adaptar especias sin cebolla/ajo).",
-          slots: [
-            { id: "desayuno", name: "Desayuno", icon: "☕", isMainMeal: false, target: { kcal: 380, p: 28, hc: 42, g: 11 } },
-            { id: "almuerzo", name: "Almuerzo", icon: "🍽️", isMainMeal: true, target: { kcal: 640, p: 55, hc: 65, g: 17 } },
-            { id: "merienda", name: "Merienda", icon: "🥪", isMainMeal: false, target: { kcal: 250, p: 25, hc: 26, g: 5 } },
-            { id: "cena", name: "Cena", icon: "🌙", isMainMeal: true, target: { kcal: 640, p: 55, hc: 65, g: 17 } },
-            { id: "comodin", name: "Comodín", icon: "🍓", isMainMeal: false, target: { kcal: 90, p: 2, hc: 17, g: 2 } }
-          ]
-        }
-      },
-      dishes: {
-        // Desayunos
-        "d_tostada_jamon": {
-          id: "d_tostada_jamon",
-          slotId: "desayuno",
-          title: "Tostada de Masa Madre con Jamón Serrano y AOVE",
-          macros: { noelia: { kcal: 300, p: 20, hc: 30, g: 10 }, nando: { kcal: 380, p: 28, hc: 42, g: 11 } },
-          ingredients: [
-            { name: "Pan de masa madre", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 60, gNando: 85 },
-            { name: "Jamón serrano magro", category: "Carnicería y Pescadería", unit: "g", gNoelia: 45, gNando: 65 },
-            { name: "AOVE", category: "Despensa, Secos y Aceites", unit: "ml", gNoelia: 7, gNando: 8 }
-          ],
-          steps: [
-            "Tuesta el pan de masa madre hasta que quede crujiente.",
-            "Añade el hilo de AOVE y coloca las lonchas de jamón serrano por encima."
-          ]
-        },
-        "d_yogur_avena": {
-          id: "d_yogur_avena",
-          slotId: "desayuno",
-          title: "Bol Proteico sin Lactosa con Copos de Avena y Fresas",
-          macros: { noelia: { kcal: 300, p: 20, hc: 30, g: 10 }, nando: { kcal: 380, p: 28, hc: 42, g: 11 } },
-          ingredients: [
-            { name: "Yogur proteico natural 0% sin lactosa", category: "Lácteos, Huevos y Refrigerados", unit: "g", gNoelia: 150, gNando: 200 },
-            { name: "Copos de avena suaves", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 35, gNando: 50 },
-            { name: "Fresas frescas", category: "Verduras y Frutas", unit: "g", gNoelia: 100, gNando: 120 },
-            { name: "Nueces peladas", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 10, gNando: 12 }
-          ],
-          steps: [
-            "Mezcla el yogur 0% sin lactosa con los copos de avena.",
-            "Corona con las fresas laminadas y las nueces troceadas."
-          ]
-        },
-        // Almuerzos y Cenas
-        "m_pollo_gnocchis": {
-          id: "m_pollo_gnocchis",
-          slotId: "almuerzo",
-          title: "Pechuga de Pollo a la Plancha con Gnocchis Crujientes y Verduras",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Pechuga de pollo", category: "Carnicería y Pescadería", unit: "g", gNoelia: 200, gNando: 230 },
-            { name: "Gnocchis de patata", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 90, gNando: 135 },
-            { name: "Calabacín y espinacas frescas", category: "Verduras y Frutas", unit: "g", gNoelia: 250, gNando: 275 },
-            { name: "AOVE", category: "Despensa, Secos y Aceites", unit: "ml", gNoelia: 10, gNando: 13 }
-          ],
-          steps: [
-            "Airfryer Aigostar 3,5L (195 °C · 10 min): Introduce los gnocchis directos del paquete con una pulverización de AOVE y sal, agitando a los 5 minutos.",
-            "Sartén / Wok (Vitro Nivel 8 · 4 min): Marca la pechuga de pollo fileteada y salpimentada 2 min por lado y retira.",
-            "En la misma sartén (Nivel 7 · 3 min): Saltea el calabacín y las espinacas al dente. Sirve las verduras en la base, el pollo al lado y los gnocchis crujientes por encima."
-          ]
-        },
-        "m_sepia_gnocchis": {
-          id: "m_sepia_gnocchis",
-          slotId: "almuerzo",
-          title: "Sepia a la Plancha con Fideos de Calabacín y Gnocchis",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Sepia limpia", category: "Carnicería y Pescadería", unit: "g", gNoelia: 250, gNando: 280 },
-            { name: "Gnocchis de patata", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 90, gNando: 135 },
-            { name: "Calabacín y espinacas", category: "Verduras y Frutas", unit: "g", gNoelia: 200, gNando: 230 },
-            { name: "AOVE", category: "Despensa, Secos y Aceites", unit: "ml", gNoelia: 10, gNando: 13 }
-          ],
-          steps: [
-            "Airfryer Aigostar 3,5L (195 °C · 10 min): Dora los gnocchis agitando a mitad de tiempo.",
-            "Sartén / Wok (Vitro Nivel 9 · 3 min): Seca bien la sepia con papel de cocina y márcala a fuego fuerte con perejil y limón.",
-            "Saltea los fideos de calabacín y espinacas 2 min a Nivel 8 y corona con los gnocchis crujientes."
-          ]
-        },
-        "m_plato_montes": {
-          id: "m_plato_montes",
-          slotId: "almuerzo",
-          title: "Plato de los Montes Fit (Solomillo de Cerdo, Patata, Padrón y Huevo)",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Solomillo o escalopín de cerdo", category: "Carnicería y Pescadería", unit: "g", gNoelia: 180, gNando: 205 },
-            { name: "Patata cocida de bote (o fresca)", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 400, gNando: 580 },
-            { name: "Pimientos del Padrón", category: "Verduras y Frutas", unit: "g", gNoelia: 100, gNando: 115 },
-            { name: "Huevo M", category: "Lácteos, Huevos y Refrigerados", unit: "ud", gNoelia: 1, gNando: 1 }
-          ],
-          steps: [
-            "Airfryer Aigostar 3,5L (200 °C · 14 min): Dora las patatas escurridas junto con los pimientos del Padrón y una pulverización de AOVE.",
-            "Sartén Mediana (Vitro Nivel 8 · 3 min): Marca el solomillo de cerdo salpimentado 90 seg por lado y retira.",
-            "En la misma sartén (Nivel 7 · 90 seg): Cuaja el huevo a la plancha tapado para dejar la yema líquida."
-          ]
-        },
-        "m_wok_gambas": {
-          id: "m_wok_gambas",
-          slotId: "almuerzo",
-          title: "Wok de Fideos de Arroz con Gambas Peladas y Verduras",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Gambas peladas", category: "Congelados y Otros", unit: "g", gNoelia: 210, gNando: 240 },
-            { name: "Fideos de arroz (en seco)", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 55, gNando: 82 },
-            { name: "Calabacín y zanahoria en juliana", category: "Verduras y Frutas", unit: "g", gNoelia: 250, gNando: 275 },
-            { name: "Aceite de sésamo o AOVE", category: "Despensa, Secos y Aceites", unit: "ml", gNoelia: 10, gNando: 13 }
-          ],
-          steps: [
-            "Hidrata los fideos de arroz en agua hirviendo 3-4 minutos y escurre.",
-            "Microondas LG MH6535GDS (800W · 3 min en vaporera Steam Chef): Cocina la verdura en juliana al dente.",
-            "Wok (Vitro Nivel 8 · 2 min): Saltea las gambas, incorpora los fideos, la verdura y 1 cucharada de salsa de soja."
-          ]
-        },
-        "c_tortilla_patata": {
-          id: "c_tortilla_patata",
-          slotId: "cena",
-          title: "Tortilla de Patatas Fit en Airfryer y Sartén",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Patata de bote lavada", category: "Despensa, Secos y Aceites", unit: "g", gNoelia: 400, gNando: 580 },
-            { name: "Huevos M", category: "Lácteos, Huevos y Refrigerados", unit: "ud", gNoelia: 3, gNando: 3 },
-            { name: "Claras líquidas pasteurizadas", category: "Lácteos, Huevos y Refrigerados", unit: "g", gNoelia: 100, gNando: 150 },
-            { name: "Calabacín o cebolleta verde", category: "Verduras y Frutas", unit: "g", gNoelia: 100, gNando: 120 }
-          ],
-          steps: [
-            "Airfryer Aigostar 3,5L (195 °C · 10 min): Dora la patata lavada y troceada junto al calabacín.",
-            "Bate los huevos con las claras y una pizca de sal; mezcla con la patata caliente.",
-            "Sartén Mediana (Vitro Nivel 6 · 3 min): Cuaja la tortilla 90 seg por cada lado."
-          ]
-        },
-        "c_salmon_boniato": {
-          id: "c_salmon_boniato",
-          slotId: "cena",
-          title: "Lomo de Salmón al Horno Teka con Boniato Asado y Espinacas",
-          macros: { noelia: { kcal: 511, p: 48, hc: 44, g: 13 }, nando: { kcal: 640, p: 55, hc: 65, g: 17 } },
-          ingredients: [
-            { name: "Lomo de salmón fresco", category: "Carnicería y Pescadería", unit: "g", gNoelia: 160, gNando: 195 },
-            { name: "Boniato pelado en dados", category: "Verduras y Frutas", unit: "g", gNoelia: 180, gNando: 265 },
-            { name: "Espinacas frescas", category: "Verduras y Frutas", unit: "g", gNoelia: 150, gNando: 180 }
-          ],
-          steps: [
-            "Horno Compacto Teka HSC 635 (200 °C con turbina · 14 min): Coloca el boniato en dados en la bandeja; a los 5 minutos incorpora los lomos de salmón salpimentados con eneldo.",
-            "Sartén (Vitro Nivel 7 · 90 seg): Saltea las espinacas con una gota de agua o AOVE para acompañar."
-          ]
-        },
-        // Meriendas
-        "s_batido_tostada": {
-          id: "s_batido_tostada",
-          slotId: "merienda",
-          title: "Tortitas de Arroz con Pavo 95% y Queso Batido 0% sin Lactosa",
-          macros: { noelia: { kcal: 200, p: 20, hc: 20, g: 4 }, nando: { kcal: 250, p: 25, hc: 26, g: 5 } },
-          ingredients: [
-            { name: "Tortitas de arroz integral", category: "Despensa, Secos y Aceites", unit: "ud", gNoelia: 3, gNando: 4 },
-            { name: "Pechuga de pavo lonchas >92%", category: "Carnicería y Pescadería", unit: "g", gNoelia: 60, gNando: 80 },
-            { name: "Queso fresco batido 0% sin lactosa", category: "Lácteos, Huevos y Refrigerados", unit: "g", gNoelia: 120, gNando: 150 }
-          ],
-          steps: [
-            "Unta el queso fresco batido 0% sobre las tortitas de arroz y corona con las lonchas de pavo."
-          ]
-        },
-        // Comodines
-        "c_fruta_fresas": {
-          id: "c_fruta_fresas",
-          slotId: "comodin",
-          title: "Ración de Fruta Baja en Fructosa (Fresas / Kiwi / Arándanos)",
-          macros: { noelia: { kcal: 80, p: 1, hc: 20, g: 0 }, nando: { kcal: 90, p: 2, hc: 22, g: 0 } },
-          ingredients: [
-            { name: "Fresas o Kiwi fresco", category: "Verduras y Frutas", unit: "g", gNoelia: 220, gNando: 260 }
-          ],
-          steps: [
-            "Lava y trocea la fruta fresca lista para tomar entre horas o de postre."
-          ]
-        }
-      },
-      weeks: {}, // Mapa de weekKey ("YYYY-MM-DD" del lunes) -> { nando: [7 días], noelia: [7 días] }
-      deviations: [], // { id, userId, dateIso, slotId, mode: 'replace'|'extra', text, macros: {kcal, p, hc, g} }
-      clinical: [], // { id, userId, dateIso, weight, steps, waist, hip, chest, bicepsL, bicepsR, quadL, quadR }
-      shoppingChecked: {} // { itemKey: true }
-    };
-
-    let state = null;
-    let firebaseDbRef = null;
-    let isRemoteSyncing = false;
-    let currentTab = "planner";
-    let currentWeekOffset = 0;
-    let plannerSubView = "week"; // "week" | "day"
-    let selectedDayIdx = (new Date().getDay() + 6) % 7; // 0 = Lunes ... 6 = Domingo
-    let shoppingHorizon = "daily"; // "daily" | "weekly" | "monthly"
-    let dailyShopTarget = "today"; // "today" | "tomorrow" | "custom"
-    let lastGeneratedAIDish = null;
-    let activeModalContext = null;
-
-    // =========================================================================
-    // 2. UTILIDADES DE FECHAS, SEMANAS Y PERSISTENCIA (LOCAL + FIREBASE)
-    // =========================================================================
-    function getTodayIso() {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    }
-
-    function getTomorrowIso() {
-      const d = new Date();
-      d.setDate(d.getDate() + 1);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    }
-
-    function getMondayIsoForOffset(offset = 0) {
-      const now = new Date();
-      const day = now.getDay();
-      const diffToMonday = (day === 0 ? -6 : 1 - day) + offset * 7;
-      const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
-      return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
-    }
-
-    function getMondayIsoFromAnyDate(isoStr) {
-      const [y, m, d] = isoStr.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      const day = dt.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      const mon = new Date(y, m - 1, d + diff);
-      return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, "0")}-${String(mon.getDate()).padStart(2, "0")}`;
-    }
-
-    function getDayIndexFromIso(isoStr) {
-      const [y, m, d] = isoStr.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      return (dt.getDay() + 6) % 7;
-    }
-
-    function formatIsoShort(isoStr) {
-      const [y, m, d] = isoStr.split("-");
-      return `${d}/${m}/${y}`;
-    }
-
-    function buildDefaultWeekTemplate() {
-      const templateDays = [
-        { desayuno: "d_tostada_jamon", almuerzo: "m_pollo_gnocchis", merienda: "s_batido_tostada", cena: "c_salmon_boniato", comodin: "c_fruta_fresas" },
-        { desayuno: "d_yogur_avena", almuerzo: "m_sepia_gnocchis", merienda: "s_batido_tostada", cena: "c_tortilla_patata", comodin: "c_fruta_fresas" },
-        { desayuno: "d_tostada_jamon", almuerzo: "m_wok_gambas", merienda: "s_batido_tostada", cena: "c_salmon_boniato", comodin: "c_fruta_fresas" },
-        { desayuno: "d_yogur_avena", almuerzo: "m_pollo_gnocchis", merienda: "s_batido_tostada", cena: "c_tortilla_patata", comodin: "c_fruta_fresas" },
-        { desayuno: "d_tostada_jamon", almuerzo: "m_plato_montes", merienda: "s_batido_tostada", cena: "c_tortilla_patata", comodin: "c_fruta_fresas" },
-        { desayuno: "d_yogur_avena", almuerzo: "m_sepia_gnocchis", merienda: "s_batido_tostada", cena: "c_salmon_boniato", comodin: "c_fruta_fresas" },
-        { desayuno: "d_tostada_jamon", almuerzo: "m_plato_montes", merienda: "s_batido_tostada", cena: "c_wok_gambas", comodin: "c_fruta_fresas" }
-      ];
-      return {
-        nando: JSON.parse(JSON.stringify(templateDays)),
-        noelia: JSON.parse(JSON.stringify(templateDays))
-      };
-    }
-
-    // Garantiza que exista la semana pedida heredando automáticamente la semana anterior si es nueva
-    function ensureWeekExists(weekKey) {
-      if (!state.weeks) state.weeks = {};
-      if (state.weeks[weekKey]) return state.weeks[weekKey];
-
-      const existingKeys = Object.keys(state.weeks).sort();
-      const prevKeys = existingKeys.filter(k => k < weekKey);
-      if (prevKeys.length > 0) {
-        const lastPrevKey = prevKeys[prevKeys.length - 1];
-        state.weeks[weekKey] = JSON.parse(JSON.stringify(state.weeks[lastPrevKey]));
-      } else if (existingKeys.length > 0) {
-        state.weeks[weekKey] = JSON.parse(JSON.stringify(state.weeks[existingKeys[0]]));
-      } else {
-        state.weeks[weekKey] = buildDefaultWeekTemplate();
-      }
-      return state.weeks[weekKey];
-    }
-
-    function loadInitialState() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          state = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_STATE)), parsed);
-        } else {
-          state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-        }
-      } catch (e) {
-        state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-      }
-      ensureWeekExists(getMondayIsoForOffset(0));
-    }
-
-    function saveState(pushToCloud = true) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      if (pushToCloud && firebaseDbRef && !isRemoteSyncing) {
-        firebaseDbRef.set(state).catch(err => console.warn("Firebase sync warning:", err));
-      }
-    }
-
-    function initFirebaseSync() {
-      const dbUrl = (state.settings.firebaseDbUrl || "").trim();
-      const room = (state.settings.firebaseRoom || "hogar_nando_noelia").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
-      const badge = document.getElementById("syncStatusBadge");
-
-      if (!dbUrl) {
-        if (badge) {
-          badge.textContent = "💾 Local";
-          badge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600";
-        }
-        return;
-      }
-
-      try {
-        if (!firebase.apps.length) {
-          firebase.initializeApp({ databaseURL: dbUrl });
-        }
-        firebaseDbRef = firebase.database().ref(`nutriplan_v2/${room}`);
-        if (badge) {
-          badge.textContent = `☁️ Sincronizado (${room})`;
-          badge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800";
-        }
-
-        firebaseDbRef.on("value", snap => {
-          const remoteVal = snap.val();
-          if (remoteVal) {
-            isRemoteSyncing = true;
-            const currentActiveView = state.settings.activeViewProfile;
-            state = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_STATE)), remoteVal);
-            // Mantener la vista de perfil local seleccionada en este teléfono
-            state.settings.activeViewProfile = currentActiveView;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            renderAll();
-            isRemoteSyncing = false;
-          } else {
-            // Subir estado inicial si la sala estaba vacía
-            firebaseDbRef.set(state);
-          }
-        });
-      } catch (e) {
-        console.error("Error conectando Firebase:", e);
-        if (badge) {
-          badge.textContent = "⚠️ Error Firebase";
-          badge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700";
-        }
-      }
-    }
-
-    // =========================================================================
-    // 3. CÁLCULO DE MACROS Y CONTADORES DIARIO / SEMANAL (OBJETIVOS PUROS)
-    // =========================================================================
-    function getDishMacrosForUser(dishId, userId, fallbackSlotTarget) {
-      const dish = state.dishes[dishId];
-      if (!dish) return fallbackSlotTarget || { kcal: 0, p: 0, hc: 0, g: 0 };
-      if (dish.macros && dish.macros[userId]) return dish.macros[userId];
-      // Si el plato fue creado en otro perfil y no tiene macros directos para userId, usar objetivo de la toma
-      return fallbackSlotTarget || dish.macros?.nando || dish.macros?.noelia || { kcal: 0, p: 0, hc: 0, g: 0 };
-    }
-
-    function computeUserDayAndWeekStats(userId, targetIso) {
-      const profile = state.profiles[userId];
-      const weekKey = getMondayIsoFromAnyDate(targetIso);
-      const weekData = ensureWeekExists(weekKey);
-      const userDays = weekData[userId] || [];
-      const dayIdx = getDayIndexFromIso(targetIso);
-
-      // Calcular cada día de la semana (0..6)
-      let weekConsumed = { kcal: 0, p: 0, hc: 0, g: 0 };
-      let dayConsumed = { kcal: 0, p: 0, hc: 0, g: 0 };
-
-      const [wy, wm, wd] = weekKey.split("-").map(Number);
-
-      for (let d = 0; d < 7; d++) {
-        const dt = new Date(wy, wm - 1, wd + d);
-        const dIso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-        const dayPlan = userDays[d] || {};
-        const dayDevs = (state.deviations || []).filter(dev => dev.userId === userId && dev.dateIso === dIso);
-
-        let dTotals = { kcal: 0, p: 0, hc: 0, g: 0 };
-
-        // Sumar tomas planificadas (salvo si un desfase sustituye a esa toma)
-        (profile.slots || []).forEach(slot => {
-          const replacingDev = dayDevs.find(dev => dev.mode === "replace" && dev.slotId === slot.id);
-          if (!replacingDev) {
-            const dishId = dayPlan[slot.id];
-            const m = getDishMacrosForUser(dishId, userId, slot.target);
-            dTotals.kcal += Number(m.kcal) || 0;
-            dTotals.p += Number(m.p) || 0;
-            dTotals.hc += Number(m.hc) || 0;
-            dTotals.g += Number(m.g) || 0;
-          }
-        });
-
-        // Sumar todos los desfases del día (tanto los que sustituyen como los extras añadidos)
-        dayDevs.forEach(dev => {
-          dTotals.kcal += Number(dev.macros?.kcal) || 0;
-          dTotals.p += Number(dev.macros?.p) || 0;
-          dTotals.hc += Number(dev.macros?.hc) || 0;
-          dTotals.g += Number(dev.macros?.g) || 0;
-        });
-
-        weekConsumed.kcal += dTotals.kcal;
-        weekConsumed.p += dTotals.p;
-        weekConsumed.hc += dTotals.hc;
-        weekConsumed.g += dTotals.g;
-
-        if (d === dayIdx) {
-          dayConsumed = { ...dTotals };
-        }
-      }
-
-      const dailyGoal = profile.dailyTarget;
-      const weeklyGoal = {
-        kcal: dailyGoal.kcal * 7,
-        p: dailyGoal.p * 7,
-        hc: dailyGoal.hc * 7,
-        g: dailyGoal.g * 7
-      };
-
-      return {
-        dailyGoal,
-        dayConsumed,
-        dayDiffKcal: Math.round(dayConsumed.kcal - dailyGoal.kcal),
-        weeklyGoal,
-        weekConsumed,
-        weekDiffKcal: Math.round(weekConsumed.kcal - weeklyGoal.kcal)
-      };
-    }
-
-    function renderAdherenceCounters() {
-      const box = document.getElementById("adherenceCountersBanner");
-      if (!box) return;
-
-      const mode = state.settings.mode;
-      const activeView = state.settings.activeViewProfile;
-      const refIso = currentWeekOffset === 0 ? getTodayIso() : getMondayIsoForOffset(currentWeekOffset);
-      const refLabel = currentWeekOffset === 0 ? "Hoy" : `${DAYS_NAMES[0]} (${formatIsoShort(refIso)})`;
-
-      const usersToShow = (mode === "individual")
-        ? ["nando"]
-        : (activeView === "joint" ? ["noelia", "nando"] : [activeView]);
-
-      const cardsHtml = usersToShow.map(uid => {
-        const prof = state.profiles[uid];
-        const st = computeUserDayAndWeekStats(uid, refIso);
-        const daySign = st.dayDiffKcal > 0 ? `+${st.dayDiffKcal}` : `${st.dayDiffKcal}`;
-        const weekSign = st.weekDiffKcal > 0 ? `+${st.weekDiffKcal}` : `${st.weekDiffKcal}`;
-
-        const dayBadgeColor = Math.abs(st.dayDiffKcal) <= 80
-          ? "bg-emerald-100 text-emerald-800"
-          : (st.dayDiffKcal > 0 ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800");
-
-        const weekBadgeColor = Math.abs(st.weekDiffKcal) <= 350
-          ? "bg-emerald-100 text-emerald-800"
-          : (st.weekDiffKcal > 0 ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800");
-
-        return `
-          <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-extrabold text-slate-900">${prof.emoji} ${prof.name} · Objetivo ${prof.dailyTarget.kcal} kcal/día</span>
-              <span class="text-[10.5px] font-bold text-slate-500">${Math.round(st.dayConsumed.p)}P · ${Math.round(st.dayConsumed.hc)}HC · ${Math.round(st.dayConsumed.g)}G</span>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div class="bg-white p-2 rounded-xl border border-slate-200/70">
-                <div class="flex items-center justify-between text-[10px] text-slate-500 font-bold">
-                  <span>📅 Diario (${refLabel})</span>
-                  <span class="px-1.5 py-0.2 rounded font-extrabold ${dayBadgeColor}">${daySign} kcal</span>
-                </div>
-                <div class="text-sm font-extrabold text-slate-900 mt-0.5">
-                  ${Math.round(st.dayConsumed.kcal)} <span class="text-[11px] font-semibold text-slate-400">/ ${st.dailyGoal.kcal} kcal</span>
-                </div>
-              </div>
-              <div class="bg-white p-2 rounded-xl border border-slate-200/70">
-                <div class="flex items-center justify-between text-[10px] text-slate-500 font-bold">
-                  <span>🗓️ Semanal (Lun–Dom)</span>
-                  <span class="px-1.5 py-0.2 rounded font-extrabold ${weekBadgeColor}">${weekSign} kcal</span>
-                </div>
-                <div class="text-sm font-extrabold text-slate-900 mt-0.5">
-                  ${Math.round(st.weekConsumed.kcal).toLocaleString("es-ES")} <span class="text-[11px] font-semibold text-slate-400">/ ${st.weeklyGoal.kcal.toLocaleString("es-ES")}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join("");
-
-      box.innerHTML = `<div class="grid grid-cols-1 ${usersToShow.length > 1 ? 'md:grid-cols-2' : ''} gap-2.5">${cardsHtml}</div>`;
-    }
-
-    // =========================================================================
-    // 4. BARRA DE PERFILES Y NAVEGACIÓN DE PESTAÑAS
-    // =========================================================================
-    function renderProfileSwitcher() {
-      const bar = document.getElementById("profileSwitcherBar");
-      if (!bar) return;
-
-      if (state.settings.mode === "individual") {
-        state.settings.activeViewProfile = "nando";
-        const p = state.profiles.nando;
-        bar.innerHTML = `
-          <span class="px-3 py-1 rounded-xl text-xs font-extrabold bg-slate-900 text-white">
-            ${p.emoji} ${p.name} (${p.dailyTarget.kcal} kcal)
-          </span>
-        `;
-        return;
-      }
-
-      const active = state.settings.activeViewProfile;
-      const btns = [
-        { id: "nando", label: `👨 ${state.profiles.nando.name}` },
-        { id: "noelia", label: `👩 ${state.profiles.noelia.name}` },
-        { id: "joint", label: "👩‍❤️‍👨 Visión Conjunta" }
-      ];
-
-      bar.innerHTML = btns.map(b => `
-        <button onclick="setActiveViewProfile('${b.id}')"
-          class="px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
-            active === b.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-white"
-          }">
-          ${b.label}
-        </button>
-      `).join("");
-    }
-
-    function setActiveViewProfile(viewId) {
-      state.settings.activeViewProfile = viewId;
-      saveState(false); // Preferencia local de vista en este móvil
-      renderAll();
-    }
-
-    function switchTab(tabId) {
-      currentTab = tabId;
-      ["planner", "recipes", "shopping", "deviations", "clinical", "settings"].forEach(t => {
-        const viewEl = document.getElementById(`view-${t}`);
-        const navEl = document.getElementById(`nav-${t}`);
-        if (viewEl) viewEl.classList.toggle("hidden", t !== tabId);
-        if (navEl) {
-          navEl.className = (t === tabId)
-            ? "tab-active px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all"
-            : "bg-white text-slate-700 border border-slate-200 px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all";
-        }
-      });
-      renderAll();
-    }
-
-    // =========================================================================
-    // 5. PLANIFICADOR SEMANAL / DIARIO + VISIÓN CONJUNTA + ASIGNAR A PAREJA
-    // =========================================================================
-    function changeWeekOffset(delta) {
-      currentWeekOffset += delta;
-      const wk = getMondayIsoForOffset(currentWeekOffset);
-      ensureWeekExists(wk);
-      saveState(true);
-      renderAll();
-    }
-
-    function resetToCurrentWeek() {
-      currentWeekOffset = 0;
-      selectedDayIdx = (new Date().getDay() + 6) % 7;
-      renderAll();
-    }
-
-    function setPlannerSubView(sub) {
-      plannerSubView = sub;
-      document.getElementById("btnSubWeek").className = sub === "week"
-        ? "px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-900 text-white"
-        : "px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-slate-600";
-      document.getElementById("btnSubDay").className = sub === "day"
-        ? "px-2.5 py-1 rounded-lg text-[11px] font-extrabold bg-slate-900 text-white"
-        : "px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-slate-600";
-      renderPlanner();
-    }
-
-    function assignDishAlsoToPartner(dayIdx, slotId, dishId, sourceUserId) {
-      const targetUserId = sourceUserId === "nando" ? "noelia" : "nando";
-      const targetName = state.profiles[targetUserId].name;
-      const weekKey = getMondayIsoForOffset(currentWeekOffset);
-      const weekData = ensureWeekExists(weekKey);
-
-      if (!weekData[targetUserId]) weekData[targetUserId] = buildDefaultWeekTemplate()[targetUserId];
-      if (!weekData[targetUserId][dayIdx]) weekData[targetUserId][dayIdx] = {};
-      weekData[targetUserId][dayIdx][slotId] = dishId;
-
-      saveState(true);
-      renderAll();
-      alert(`✅ Plato asignado también a ${targetName} el ${DAYS_NAMES[dayIdx]} con sus macros ajustados.`);
-    }
-
-    function renderPlanner() {
-      const weekKey = getMondayIsoForOffset(currentWeekOffset);
-      const weekData = ensureWeekExists(weekKey);
-      const [wy, wm, wd] = weekKey.split("-").map(Number);
-      const sunday = new Date(wy, wm - 1, wd + 6);
-      const sunIso = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
-
-      document.getElementById("weekRangeLabel").textContent =
-        currentWeekOffset === 0
-          ? `Semana Actual (${formatIsoShort(weekKey)} – ${formatIsoShort(sunIso)})`
-          : `Semana ${formatIsoShort(weekKey)} – ${formatIsoShort(sunIso)}`;
-
-      // Barra de selección de día si plannerSubView === "day"
-      const dayBar = document.getElementById("daySelectorBar");
-      if (plannerSubView === "day") {
-        dayBar.classList.remove("hidden");
-        dayBar.innerHTML = DAYS_NAMES.map((dName, idx) => `
-          <button onclick="selectedDayIdx=${idx}; renderPlanner();"
-            class="px-3 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap border ${
-              selectedDayIdx === idx ? "bg-emerald-600 text-white border-emerald-700" : "bg-white text-slate-700 border-slate-200"
-            }">
-            ${dName}
-          </button>
-        `).join("");
-      } else {
-        dayBar.classList.add("hidden");
-      }
-
-      const container = document.getElementById("plannerGridContainer");
-      const activeView = state.settings.activeViewProfile;
-      const isCouple = state.settings.mode === "couple";
-      const daysIndices = plannerSubView === "day" ? [selectedDayIdx] : [0, 1, 2, 3, 4, 5, 6];
-
-      // MODO VISIÓN CONJUNTA (Solo en modo Pareja)
-      if (isCouple && activeView === "joint") {
-        container.innerHTML = daysIndices.map(dIdx => {
-          const nandoDay = (weekData.nando && weekData.nando[dIdx]) || {};
-          const noeliaDay = (weekData.noelia && weekData.noelia[dIdx]) || {};
-
-          // Unificar todas las tomas de ambos perfiles
-          const allSlotIds = Array.from(new Set([
-            ...state.profiles.noelia.slots.map(s => s.id),
-            ...state.profiles.nando.slots.map(s => s.id)
-          ]));
-
-          const slotsRows = allSlotIds.map(sId => {
-            const slotNoe = state.profiles.noelia.slots.find(s => s.id === sId);
-            const slotNan = state.profiles.nando.slots.find(s => s.id === sId);
-            const sLabel = (slotNoe || slotNan)?.name || sId;
-            const sIcon = (slotNoe || slotNan)?.icon || "🍽️";
-
-            const dIdNoe = noeliaDay[sId];
-            const dIdNan = nandoDay[sId];
-            const dishNoe = state.dishes[dIdNoe];
-            const dishNan = state.dishes[dIdNan];
-            const sameDish = dIdNoe && dIdNoe === dIdNan && dishNoe;
-
-            return `
-              <div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-extrabold text-slate-700">${sIcon} ${sLabel}</span>
-                  ${sameDish
-                    ? `<button onclick="openRecipeDetailModal('${dIdNoe}', 'joint')" class="text-[10.5px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 hover:bg-emerald-200">
-                        👩‍❤️‍👨 Mismo plato · Ver pesos juntos y reparto
-                       </button>`
-                    : `<span class="text-[10px] font-bold text-slate-400">Platos independientes</span>`
-                  }
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div onclick="${dishNoe ? `openRecipeDetailModal('${dIdNoe}', 'noelia')` : ''}"
-                    class="bg-white p-2 rounded-xl border border-emerald-200/80 cursor-pointer hover:border-emerald-400">
-                    <span class="text-[10px] font-extrabold text-emerald-700 block">👩 ${state.profiles.noelia.name}</span>
-                    <span class="text-xs font-bold text-slate-900">${dishNoe ? dishNoe.title : 'Sin asignar'}</span>
-                  </div>
-                  <div onclick="${dishNan ? `openRecipeDetailModal('${dIdNan}', 'nando')` : ''}"
-                    class="bg-white p-2 rounded-xl border border-indigo-200/80 cursor-pointer hover:border-indigo-400">
-                    <span class="text-[10px] font-extrabold text-indigo-700 block">👨 ${state.profiles.nando.name}</span>
-                    <span class="text-xs font-bold text-slate-900">${dishNan ? dishNan.title : 'Sin asignar'}</span>
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join("");
-
-          return `
-            <div class="bg-white rounded-3xl border border-slate-200 p-3.5 shadow-sm space-y-2.5">
-              <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h3 class="text-sm font-extrabold text-slate-900">📅 ${DAYS_NAMES[dIdx]} — Visión Conjunta</h3>
-                <span class="text-[11px] font-bold text-slate-500">Toca cualquier plato para ver receta en equipos</span>
-              </div>
-              <div class="space-y-2">${slotsRows}</div>
-            </div>
-          `;
-        }).join("");
-        return;
-      }
-
-      // MODO PERFIL INDIVIDUAL (Nando o Noelia)
-      const uid = isCouple ? activeView : "nando";
-      const profile = state.profiles[uid];
-      const partnerId = uid === "nando" ? "noelia" : "nando";
-      const partnerName = state.profiles[partnerId].name;
-
-      container.innerHTML = daysIndices.map(dIdx => {
-        const daySlotsData = (weekData[uid] && weekData[uid][dIdx]) || {};
-
-        const slotsHtml = (profile.slots || []).map(slot => {
-          const dishId = daySlotsData[slot.id];
-          const dish = state.dishes[dishId];
-          const m = getDishMacrosForUser(dishId, uid, slot.target);
-
-          return `
-            <div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div class="min-w-0 flex-1 cursor-pointer" onclick="${dish ? `openRecipeDetailModal('${dish.id}', '${uid}')` : `openSlotPickerModal(${dIdx}, '${slot.id}', '${uid}')`}">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-[10.5px] font-extrabold uppercase text-slate-500">${slot.icon} ${slot.name}</span>
-                  <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-white border border-slate-200 text-slate-600">
-                    ${Math.round(m.kcal)} kcal · ${Math.round(m.p)}P / ${Math.round(m.hc)}HC / ${Math.round(m.g)}G
-                  </span>
-                </div>
-                <div class="text-xs font-extrabold text-slate-900 mt-0.5 truncate">
-                  ${dish ? dish.title : "➕ Asignar plato..."}
-                </div>
-              </div>
-
-              <div class="flex items-center gap-1.5 flex-shrink-0">
-                ${dish ? `
-                  <button onclick="openRecipeDetailModal('${dish.id}', '${uid}')"
-                    class="px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-extrabold text-slate-800">
-                    👨‍🍳 Receta
-                  </button>
-                ` : ""}
-                <button onclick="openSlotPickerModal(${dIdx}, '${slot.id}', '${uid}')"
-                  class="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold">
-                  🔄 Cambiar
-                </button>
-                ${(isCouple && dish) ? `
-                  <button onclick="assignDishAlsoToPartner(${dIdx}, '${slot.id}', '${dish.id}', '${uid}')"
-                    class="px-2.5 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-[11px] font-extrabold"
-                    title="Asignar este mismo plato a ${partnerName} recalculando sus gramos">
-                    🍽️ + ${partnerName}
-                  </button>
-                ` : ""}
-              </div>
-            </div>
-          `;
-        }).join("");
-
-        return `
-          <div class="bg-white rounded-3xl border border-slate-200 p-3.5 shadow-sm space-y-2">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
-              <h3 class="text-sm font-extrabold text-slate-900">${profile.emoji} ${DAYS_NAMES[dIdx]} — Plan de ${profile.name}</h3>
-              <span class="text-[11px] font-bold text-slate-500">Objetivo: ${profile.dailyTarget.kcal} kcal</span>
-            </div>
-            <div class="space-y-1.5">${slotsHtml}</div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function openSlotPickerModal(dayIdx, slotId, userId) {
-      const profile = state.profiles[userId];
-      const slot = profile.slots.find(s => s.id === slotId);
-      document.getElementById("slotPickerTitle").textContent = `${DAYS_NAMES[dayIdx]} · ${slot ? slot.name : slotId} (${profile.name})`;
-
-      const allDishes = Object.values(state.dishes);
-      const matchingDishes = allDishes.filter(d => d.slotId === slotId);
-      const otherDishes = allDishes.filter(d => d.slotId !== slotId);
-      const ordered = [...matchingDishes, ...otherDishes];
-
-      document.getElementById("slotPickerList").innerHTML = ordered.map(d => {
-        const m = getDishMacrosForUser(d.id, userId, slot?.target);
-        return `
-          <div onclick="selectDishForSlot(${dayIdx}, '${slotId}', '${userId}', '${d.id}')"
-            class="p-2.5 rounded-2xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 cursor-pointer transition-all">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs font-extrabold text-slate-900">${d.title}</span>
-              <span class="text-[10.5px] font-bold text-emerald-700 whitespace-nowrap">${Math.round(m.kcal)} kcal</span>
-            </div>
-            <p class="text-[11px] text-slate-500 mt-0.5 truncate">
-              ${(d.ingredients || []).map(i => `${i.name} (${userId === 'noelia' ? i.gNoelia : i.gNando}${i.unit})`).join(" · ")}
-            </p>
-          </div>
-        `;
-      }).join("");
-
-      document.getElementById("slotPickerModal").classList.remove("hidden");
-    }
-
-    function closeSlotPickerModal() {
-      document.getElementById("slotPickerModal").classList.add("hidden");
-    }
-
-    function selectDishForSlot(dayIdx, slotId, userId, dishId) {
-      const weekKey = getMondayIsoForOffset(currentWeekOffset);
-      const weekData = ensureWeekExists(weekKey);
-      if (!weekData[userId]) weekData[userId] = buildDefaultWeekTemplate()[userId];
-      if (!weekData[userId][dayIdx]) weekData[userId][dayIdx] = {};
-      weekData[userId][dayIdx][slotId] = dishId;
-      saveState(true);
-      closeSlotPickerModal();
-      renderAll();
-    }
-
-    // =========================================================================
-    // 6. MODAL DE RECETA DETALLADA EN EQUIPOS (1 O 2 PERSONAS + REPARTO)
-    // =========================================================================
-    function openRecipeDetailModal(dishId, mode = "nando") {
-      const dish = state.dishes[dishId];
-      if (!dish) return;
-      const isCouple = state.settings.mode === "couple";
-      const effectiveMode = isCouple ? mode : "nando";
-      activeModalContext = { dishId, mode: effectiveMode };
-
-      document.getElementById("modalDishTag").textContent = dish.slotId.toUpperCase();
-      document.getElementById("modalDishTitle").textContent = dish.title;
-
-      const toggleBar = document.getElementById("modalDinersToggleBar");
-      if (!isCouple) {
-        toggleBar.classList.add("hidden");
-      } else {
-        toggleBar.classList.remove("hidden");
-        const opts = [
-          { id: "joint", label: "👩‍❤️‍👨 Para 2 (Conjunta + Reparto)" },
-          { id: "noelia", label: `👩 Solo ${state.profiles.noelia.name} (1p)` },
-          { id: "nando", label: `👨 Solo ${state.profiles.nando.name} (1p)` }
-        ];
-        toggleBar.innerHTML = opts.map(o => `
-          <button onclick="openRecipeDetailModal('${dishId}', '${o.id}')"
-            class="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-extrabold transition-all ${
-              effectiveMode === o.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-white"
-            }">
-            ${o.label}
-          </button>
-        `).join("");
-      }
-
-      const ings = dish.ingredients || [];
-      const activeApps = (state.settings.appliances || []).filter(a => a.active).map(a => a.name).join(" · ");
-
-      const ingRows = ings.map((it, idx) => {
-        const gNoe = Number(it.gNoelia) || 0;
-        const gNan = Number(it.gNando) || 0;
-        const gTot = Number((gNoe + gNan).toFixed(1));
-        if (effectiveMode === "joint") {
-          const pctNoe = gTot > 0 ? Math.round((gNoe / gTot) * 100) : 50;
-          const pctNan = 100 - pctNoe;
-          return `
-            <div class="p-2 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <span class="font-extrabold text-slate-900 block">${it.name}</span>
-                <span class="text-[10.5px] text-slate-500">
-                  Crudo: <b>Total ${gTot}${it.unit}</b> (Noelia ${gNoe}${it.unit} · Nando ${gNan}${it.unit})
-                </span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <input type="number" placeholder="Peso cocinado"
-                  oninput="updateModalCookedSplit(${idx}, ${gNoe}, ${gTot}, '${it.unit}', this.value)"
-                  class="w-24 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-[11px] font-bold" />
-                <span id="modalSplitOut_${idx}" class="text-[11px] font-extrabold text-emerald-800 min-w-[125px] text-right">
-                  Reparto: ${pctNoe}% / ${pctNan}%
-                </span>
-              </div>
-            </div>
-          `;
-        } else {
-          const qty = effectiveMode === "noelia" ? gNoe : gNan;
-          return `
-            <div class="p-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between">
-              <span class="font-bold text-slate-900">${it.name}</span>
-              <span class="font-extrabold text-emerald-700 text-sm">${qty} ${it.unit}</span>
-            </div>
-          `;
-        }
-      }).join("");
-
-      const stepsHtml = (dish.steps || []).map((st, i) => `
-        <div class="flex items-start gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
-          <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold flex items-center justify-center flex-shrink-0 text-[10px]">${i + 1}</span>
-          <p class="leading-relaxed text-slate-700">${st}</p>
-        </div>
-      `).join("");
-
-      document.getElementById("modalRecipeBody").innerHTML = `
-        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="font-extrabold text-slate-900">⚖️ Pesos Exactos en Crudo ${effectiveMode === 'joint' ? 'y Calculadora de Reparto en Cocinado' : ''}</span>
-          </div>
-          <div class="space-y-1.5">${ingRows}</div>
-        </div>
-
-        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-          <div class="font-extrabold text-slate-900">👨‍🍳 Elaboración Detallada en tus Equipos</div>
-          <p class="text-[10.5px] text-slate-500">Equipos disponibles: ${activeApps}</p>
-          <div class="space-y-1.5">${stepsHtml}</div>
-        </div>
-      `;
-
-      // Controles rápidos para asignar este plato a cualquier día
-      document.getElementById("modalAssignSlotControls").innerHTML = `
-        <select id="modalQuickDaySel" class="bg-slate-100 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold">
-          ${DAYS_NAMES.map((d, idx) => `<option value="${idx}" ${idx === selectedDayIdx ? 'selected' : ''}>${d}</option>`).join("")}
-        </select>
-        <button onclick="quickAssignFromModal('${dish.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold">
-          ➕ Poner en este día
-        </button>
-      `;
-
-      document.getElementById("recipeDetailModal").classList.remove("hidden");
-    }
-
-    function updateModalCookedSplit(idx, gNoe, gTot, unit, valStr) {
-      const out = document.getElementById(`modalSplitOut_${idx}`);
-      if (!out) return;
-      const val = parseFloat(valStr);
-      const ratio = gTot > 0 ? gNoe / gTot : 0.5;
-      if (!val || val <= 0) {
-        const p = Math.round(ratio * 100);
-        out.textContent = `Reparto: ${p}% / ${100 - p}%`;
-        return;
-      }
-      const cNoe = Math.round(val * ratio);
-      const cNan = Math.round(val - cNoe);
-      out.innerHTML = `👩 <b>${cNoe}${unit}</b> | 👨 <b>${cNan}${unit}</b>`;
-    }
-
-    function quickAssignFromModal(dishId) {
-      const dish = state.dishes[dishId];
-      const dayIdx = parseInt(document.getElementById("modalQuickDaySel").value, 10);
-      const weekKey = getMondayIsoForOffset(currentWeekOffset);
-      const weekData = ensureWeekExists(weekKey);
-      const mode = activeModalContext?.mode || "nando";
-
-      if (mode === "joint" && state.settings.mode === "couple") {
-        weekData.nando[dayIdx][dish.slotId] = dishId;
-        weekData.noelia[dayIdx][dish.slotId] = dishId;
-      } else {
-        const uid = mode === "noelia" ? "noelia" : "nando";
-        weekData[uid][dayIdx][dish.slotId] = dishId;
-      }
-      saveState(true);
-      closeRecipeModal();
-      renderAll();
-    }
-
-    function closeRecipeModal() {
-      document.getElementById("recipeDetailModal").classList.add("hidden");
-    }
-
-    // =========================================================================
-    // 7. INTEGRACIÓN GEMINI API (RECETAS CON GOOGLE SEARCH, IMPORTAR PLAN, DESFASES)
-    // =========================================================================
-    async function callGeminiAPI(promptText, options = {}) {
-      const apiKey = (state.settings.geminiApiKey || "").trim();
-      if (!apiKey) {
-        throw new Error("Falta configurar tu API Key gratuita de Gemini en la pestaña '⚙️ Plan PDF & Cocina'.");
-      }
-
-      const parts = [{ text: promptText }];
-      if (options.inlineData) {
-        parts.push({ inlineData: options.inlineData });
-      }
-
-      const body = {
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          temperature: options.temperature ?? 0.3
-        }
-      };
-
-      if (options.useGoogleSearch) {
-        body.tools = [{ google_search: {} }];
-      }
-
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        }
-      );
-
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `Error HTTP ${resp.status} en Gemini API`);
-      }
-
-      const data = await resp.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n") || "";
-      return rawText;
-    }
-
-    function extractCleanJSON(text) {
-      const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/i);
-      const candidate = fenced ? fenced[1] : text;
-      const firstBrace = candidate.indexOf("{");
-      const lastBrace = candidate.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
-      }
-      return JSON.parse(candidate);
-    }
-
-    // 7A. Creador de Platos con IA + Google Search + Electrodomésticos
-    async function generateAIRecipe() {
-      const ingsText = document.getElementById("aiRecipeIngredientsInput").value.trim();
-      if (!ingsText) {
-        alert("Escribe al menos un ingrediente disponible.");
-        return;
-      }
-
-      const slotId = document.getElementById("aiRecipeSlotSelect").value;
-      const dinersMode = document.getElementById("aiRecipeDinersSelect").value; // "joint" | "nando" | "noelia"
-      const stylePref = document.getElementById("aiRecipeStyleInput").value.trim();
-      const btn = document.getElementById("btnGenerateAIRecipe");
-      const resBox = document.getElementById("aiRecipeResultBox");
-
-      const activeApps = (state.settings.appliances || []).filter(a => a.active).map(a => a.name).join("; ");
-      const slotNoe = state.profiles.noelia.slots.find(s => s.id === slotId) || state.profiles.noelia.slots[1];
-      const slotNan = state.profiles.nando.slots.find(s => s.id === slotId) || state.profiles.nando.slots[1];
-
-      btn.disabled = true;
-      btn.textContent = "⏳ Buscando receta y calculando gramos...";
-      resBox.classList.remove("hidden");
-      resBox.innerHTML = `<div class="text-xs font-bold text-slate-500 animate-pulse">Consultando recetas reales en internet, ajustando gramos a macros y adaptando tiempos a tus equipos...</div>`;
-
-      try {
-        const prompt = `
-Eres un nutricionista deportivo y chef experto en cocina eficiente.
-Busca en internet ideas reales de recetas sabrosas con estos ingredientes disponibles del usuario: "${ingsText}".
-Preferencia adicional: "${stylePref || "Sabrosa, jugosa y rápida"}".
-
-OBJETIVOS NUTRICIONALES EXACTOS DE ESTA TOMA (${slotNoe.name}):
-- Perfil Nando: ${slotNan.target.kcal} kcal (${slotNan.target.p}g Proteína, ${slotNan.target.hc}g Hidratos, ${slotNan.target.g}g Grasas). Restricciones: ${state.profiles.nando.restrictions}.
-- Perfil Noelia: ${slotNoe.target.kcal} kcal (${slotNoe.target.p}g Proteína, ${slotNoe.target.hc}g Hidratos, ${slotNoe.target.g}g Grasas). Restricciones: ${state.profiles.noelia.restrictions}.
-
-REGLAS OBLIGATORIAS:
-1. Calcula los gramos/ml/unidades exactos en crudo de cada ingrediente para cumplir los objetivos de Nando y Noelia.
-2. Si con los ingredientes escritos por el usuario falta algún macronutriente clave (por ejemplo falta grasa saludable o hidrato o proteína), AÑADE tú mismo el complemento ideal (ej. AOVE, aguacate, patata, arroz, especias aptas sin cebolla/ajo) para que el plato quede completo y cumpla los macros.
-3. Adapta el paso a paso exclusivamente a estos electrodomésticos disponibles en casa: ${activeApps}. Indica temperaturas, potencias y tiempos concretos.
-4. No incluyas enlaces web en el texto.
-
-Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
-{
-  "title": "Nombre atractivo del plato",
-  "addedComplementsNote": "Breve nota explicando qué complemento o especias has añadido para cuadrar macros y sabor",
-  "macros": {
-    "noelia": { "kcal": 511, "p": 48, "hc": 44, "g": 13 },
-    "nando": { "kcal": 640, "p": 55, "hc": 65, "g": 17 }
-  },
-  "ingredients": [
-    {
-      "name": "Nombre ingrediente",
-      "category": "Carnicería y Pescadería | Verduras y Frutas | Lácteos, Huevos y Refrigerados | Despensa, Secos y Aceites | Congelados y Otros",
-      "unit": "g",
-      "gNoelia": 180,
-      "gNando": 220
-    }
-  ],
-  "steps": [
-    "Paso 1 con equipo, temperatura y tiempo exacto...",
-    "Paso 2..."
-  ]
-}`;
-
-        const raw = await callGeminiAPI(prompt, { useGoogleSearch: true, temperature: 0.25 });
-        const parsed = extractCleanJSON(raw);
-
-        const newDishId = "ai_" + Date.now();
-        lastGeneratedAIDish = {
-          id: newDishId,
-          slotId,
-          title: parsed.title || "Receta Personalizada IA",
-          macros: parsed.macros || { noelia: slotNoe.target, nando: slotNan.target },
-          ingredients: parsed.ingredients || [],
-          steps: parsed.steps || []
-        };
-
-        const ingListHtml = lastGeneratedAIDish.ingredients.map(it => {
-          const gNoe = Number(it.gNoelia) || 0;
-          const gNan = Number(it.gNando) || 0;
-          const gTot = Number((gNoe + gNan).toFixed(1));
-          if (dinersMode === "joint") {
-            const pctNoe = gTot > 0 ? Math.round((gNoe / gTot) * 100) : 50;
-            return `<li><b>${it.name}:</b> Noelia <b>${gNoe}${it.unit}</b> | Nando <b>${gNan}${it.unit}</b> <span class="text-emerald-700 font-bold">(Total crudo: ${gTot}${it.unit} · Reparto cocinado: ${pctNoe}% / ${100 - pctNoe}%)</span></li>`;
-          } else {
-            const qty = dinersMode === "noelia" ? gNoe : gNan;
-            return `<li><b>${it.name}:</b> <b>${qty} ${it.unit}</b></li>`;
-          }
-        }).join("");
-
-        resBox.innerHTML = `
-          <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3.5 space-y-2.5">
-            <div class="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h4 class="text-sm font-extrabold text-slate-900">✅ ${lastGeneratedAIDish.title}</h4>
-                <p class="text-[11px] text-emerald-800 font-semibold mt-0.5">${parsed.addedComplementsNote || ""}</p>
-              </div>
-              <button onclick="saveLastAIDishToLibrary()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm">
-                💾 Guardar Plato en Recetario
-              </button>
-            </div>
-            <div class="bg-white p-2.5 rounded-xl border border-emerald-200/80 text-xs">
-              <div class="font-extrabold text-slate-800 mb-1">⚖️ Cantidades Exactas en Crudo:</div>
-              <ul class="list-disc pl-5 space-y-1 text-slate-700">${ingListHtml}</ul>
-            </div>
-            <div class="bg-white p-2.5 rounded-xl border border-emerald-200/80 text-xs space-y-1">
-              <div class="font-extrabold text-slate-800">👨‍🍳 Preparación en tus Equipos:</div>
-              <ol class="list-decimal pl-5 space-y-1 text-slate-700">
-                ${lastGeneratedAIDish.steps.map(s => `<li>${s}</li>`).join("")}
-              </ol>
-            </div>
-          </div>
-        `;
-      } catch (err) {
-        resBox.innerHTML = `<div class="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700">⚠️ ${err.message}</div>`;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "✨ Calcular Gramos y Crear Receta con IA";
-      }
-    }
-
-    function saveLastAIDishToLibrary() {
-      if (!lastGeneratedAIDish) return;
-      state.dishes[lastGeneratedAIDish.id] = JSON.parse(JSON.stringify(lastGeneratedAIDish));
-      saveState(true);
-      renderRecipesLibrary();
-      alert("✅ Plato guardado en tu recetario. Ya puedes asignarlo a cualquier día en el Planificador.");
-    }
-
-    // 7B. Importador de Plan del Nutricionista (PDF / Foto / Texto)
-    async function fileToBase64InlineData(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result;
-          const base64 = dataUrl.split(",")[1];
-          resolve({ mimeType: file.type || "application/pdf", data: base64 });
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    }
-
-    async function importNutritionistPlanWithAI() {
-      const targetUserId = document.getElementById("importTargetUserSelect").value;
-      const fileInput = document.getElementById("planFileInput");
-      const rawText = document.getElementById("planRawTextInput").value.trim();
-      const statusEl = document.getElementById("importPlanStatusMsg");
-      const btn = document.getElementById("btnImportPlanAI");
-
-      if ((!fileInput.files || fileInput.files.length === 0) && !rawText) {
-        alert("Sube el PDF/imagen de tu plan nutricional o pega el texto.");
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = "⏳ Analizando plan nutricional...";
-      statusEl.textContent = "Extrayendo calorías, macros, tomas y platos base con Gemini AI...";
-
-      try {
-        let inlineData = null;
-        if (fileInput.files && fileInput.files.length > 0) {
-          inlineData = await fileToBase64InlineData(fileInput.files[0]);
-        }
-
-        const profileName = state.profiles[targetUserId].name;
-        const prompt = `
-Analiza este plan nutricional enviado por un nutricionista para el perfil de "${profileName}".
-Texto adicional del usuario: "${rawText}".
-
-Extrae:
-1. Objetivo calórico y de macronutrientes diarios (kcal, proteínas g, hidratos g, grasas g).
-2. Restricciones digestivas, alergias o alimentos a evitar mencionados en el documento.
-3. Todas las tomas diarias configuradas en la dieta (ej. Desayuno, Media Mañana, Almuerzo, Merienda, Cena, Comodín) con sus calorías y macros aproximados por toma.
-4. Los platos o ejemplos principales que aparezcan en el plan con sus ingredientes y pesos exactos en crudo.
-
-Devuelve ÚNICAMENTE un JSON válido con esta estructura:
-{
-  "dailyTarget": { "kcal": 2100, "p": 170, "hc": 225, "g": 55 },
-  "restrictions": "Texto resumen de exclusiones o tolerancias",
-  "slots": [
-    { "id": "desayuno", "name": "Desayuno", "icon": "☕", "isMainMeal": false, "target": { "kcal": 400, "p": 30, "hc": 45, "g": 11 } },
-    { "id": "almuerzo", "name": "Almuerzo", "icon": "🍽️", "isMainMeal": true, "target": { "kcal": 680, "p": 60, "hc": 70, "g": 18 } }
-  ],
-  "extractedDishes": [
-    {
-      "slotId": "almuerzo",
-      "title": "Nombre del plato extraído",
-      "macros": { "kcal": 680, "p": 60, "hc": 70, "g": 18 },
-      "ingredients": [
-        { "name": "Pollo", "category": "Carnicería y Pescadería", "unit": "g", "qty": 220 }
-      ]
-    }
-  ]
-}`;
-
-        const raw = await callGeminiAPI(prompt, { inlineData, temperature: 0.1 });
-        const parsed = extractCleanJSON(raw);
-
-        const prof = state.profiles[targetUserId];
-        if (parsed.dailyTarget) prof.dailyTarget = parsed.dailyTarget;
-        if (parsed.restrictions !== undefined) prof.restrictions = parsed.restrictions;
-        if (Array.isArray(parsed.slots) && parsed.slots.length > 0) {
-          prof.slots = parsed.slots;
-        }
-
-        // Incorporar platos extraídos al recetario y al menú semanal de ese usuario
-        if (Array.isArray(parsed.extractedDishes) && parsed.extractedDishes.length > 0) {
-          const weekKey = getMondayIsoForOffset(currentWeekOffset);
-          const weekData = ensureWeekExists(weekKey);
-          const bySlot = {};
-
-          parsed.extractedDishes.forEach((ed, idx) => {
-            const dId = `plan_${targetUserId}_${Date.now()}_${idx}`;
-            const otherUserId = targetUserId === "nando" ? "noelia" : "nando";
-            const mappedIngs = (ed.ingredients || []).map(ing => ({
-              name: ing.name,
-              category: ing.category || "Despensa, Secos y Aceites",
-              unit: ing.unit || "g",
-              gNoelia: targetUserId === "noelia" ? (Number(ing.qty) || 0) : Math.round((Number(ing.qty) || 0) * 0.8),
-              gNando: targetUserId === "nando" ? (Number(ing.qty) || 0) : Math.round((Number(ing.qty) || 0) * 1.2)
-            }));
-
-            state.dishes[dId] = {
-              id: dId,
-              slotId: ed.slotId || "almuerzo",
-              title: ed.title,
-              macros: {
-                [targetUserId]: ed.macros || prof.dailyTarget,
-                [otherUserId]: state.profiles[otherUserId].slots.find(s => s.id === ed.slotId)?.target || { kcal: 500, p: 45, hc: 45, g: 13 }
-              },
-              ingredients: mappedIngs,
-              steps: ["Preparar según los equipos habituales registrados en tu cocina."]
-            };
-
-            if (!bySlot[ed.slotId]) bySlot[ed.slotId] = [];
-            bySlot[ed.slotId].push(dId);
-          });
-
-          // Asignar rotativamente los platos extraídos en la semana del usuario
-          for (let d = 0; d < 7; d++) {
-            if (!weekData[targetUserId][d]) weekData[targetUserId][d] = {};
-            Object.keys(bySlot).forEach(sId => {
-              const list = bySlot[sId];
-              weekData[targetUserId][d][sId] = list[d % list.length];
-            });
-          }
-        }
-
-        saveState(true);
-        statusEl.textContent = `✅ Plan de ${prof.name} actualizado (${prof.dailyTarget.kcal} kcal/día).`;
-        renderAll();
-      } catch (err) {
-        statusEl.textContent = "";
-        alert(`⚠️ Error al importar plan: ${err.message}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "🚀 Analizar Plan y Actualizar App";
-      }
-    }
-
-    // 7C. Registro Retroactivo de Desfases con IA (Sin mensajes de compensación)
-    async function registerDeviationWithAI() {
-      const userId = document.getElementById("devUserSelect").value;
-      const dateIso = document.getElementById("devDateInput").value || getTodayIso();
-      const slotId = document.getElementById("devSlotSelect").value;
-      const mode = document.querySelector('input[name="devMode"]:checked')?.value || "replace";
-      const desc = document.getElementById("devDescriptionInput").value.trim();
-      const btn = document.getElementById("btnSaveDeviationAI");
-
-      if (!desc) {
-        alert("Describe qué has comido o bebido en el desfase.");
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = "⏳ Calculando kcal y macros...";
-
-      try {
-        const prompt = `
-Estima de forma realista y objetiva las calorías totales y macronutrientes (proteínas, hidratos de carbono y grasas en gramos) de esta ingesta:
-"${desc}"
-
-Devuelve ÚNICAMENTE un JSON válido:
-{
-  "kcal": 780,
-  "p": 36,
-  "hc": 68,
-  "g": 34
-}`;
-
-        const raw = await callGeminiAPI(prompt, { temperature: 0.1 });
-        const macros = extractCleanJSON(raw);
-
-        state.deviations.unshift({
-          id: Date.now(),
-          userId,
-          dateIso,
-          slotId,
-          mode,
-          text: desc,
-          macros: {
-            kcal: Math.round(Number(macros.kcal) || 0),
-            p: Math.round(Number(macros.p) || 0),
-            hc: Math.round(Number(macros.hc) || 0),
-            g: Math.round(Number(macros.g) || 0)
-          }
-        });
-
-        document.getElementById("devDescriptionInput").value = "";
-        saveState(true);
-        renderAll();
-      } catch (err) {
-        alert(`⚠️ ${err.message}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "⚡ Calcular Macros con IA y Registrar Desfase";
-      }
-    }
-
-    function deleteDeviation(id) {
-      state.deviations = (state.deviations || []).filter(d => d.id !== id);
-      saveState(true);
-      renderAll();
-    }
-
-    function renderDeviationsTab() {
-      const isCouple = state.settings.mode === "couple";
-      const userSel = document.getElementById("devUserSelect");
-      userSel.innerHTML = isCouple
-        ? `<option value="nando">👨 Nando</option><option value="noelia">👩 Noelia</option>`
-        : `<option value="nando">👤 ${state.profiles.nando.name}</option>`;
-
-      const dateInp = document.getElementById("devDateInput");
-      if (!dateInp.value) dateInp.value = getTodayIso();
-
-      const slotSel = document.getElementById("devSlotSelect");
-      const refSlots = state.profiles.nando.slots || [];
-      slotSel.innerHTML = refSlots.map(s => `<option value="${s.id}">${s.icon} ${s.name}</option>`).join("");
-
-      const listEl = document.getElementById("deviationsHistoryList");
-      const badgeEl = document.getElementById("devCountBadge");
-      const items = state.deviations || [];
-      badgeEl.textContent = `${items.length} registros`;
-
-      if (items.length === 0) {
-        listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">No hay desfases registrados.</p>`;
-        return;
-      }
-
-      listEl.innerHTML = items.map(d => {
-        const prof = state.profiles[d.userId] || state.profiles.nando;
-        const slotObj = prof.slots.find(s => s.id === d.slotId);
-        return `
-          <div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
-            <div class="min-w-0">
-              <div class="flex items-center gap-1.5 flex-wrap text-[10.5px]">
-                <span class="font-extrabold text-slate-800">${prof.emoji} ${prof.name} · ${formatIsoShort(d.dateIso)}</span>
-                <span class="px-1.5 py-0.2 rounded bg-white border border-slate-200 font-bold text-slate-600">${slotObj ? slotObj.name : d.slotId}</span>
-                <span class="px-1.5 py-0.2 rounded font-bold ${d.mode === 'replace' ? 'bg-indigo-100 text-indigo-800' : 'bg-amber-100 text-amber-800'}">
-                  ${d.mode === 'replace' ? '🔄 Sustituye toma' : '➕ Extra añadido'}
-                </span>
-              </div>
-              <p class="text-xs font-bold text-slate-900 mt-0.5">${d.text}</p>
-              <span class="text-[11px] font-extrabold text-amber-700">${d.macros.kcal} kcal · ${d.macros.p}P | ${d.macros.hc}HC | ${d.macros.g}G</span>
-            </div>
-            <button onclick="deleteDeviation(${d.id})" class="px-2.5 py-1.5 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold">🗑️</button>
-          </div>
-        `;
-      }).join("");
-    }
-
-    // =========================================================================
-    // 8. LISTA DE LA COMPRA (DIARIA, SEMANAL, MENSUAL x4 · SIN PRECIOS)
-    // =========================================================================
-    function setShoppingHorizon(h) {
-      shoppingHorizon = h;
-      ["daily", "weekly", "monthly"].forEach(k => {
-        const btn = document.getElementById(`shopHor-${k}`);
-        if (btn) {
-          btn.className = (k === h)
-            ? "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-slate-900 text-white"
-            : "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-white text-slate-700 border border-slate-200";
-        }
-      });
-      document.getElementById("dailyShoppingControls").classList.toggle("hidden", h !== "daily");
-      renderShoppingList();
-    }
-
-    function setDailyShopTarget(target) {
-      dailyShopTarget = target;
-      document.getElementById("btnShopToday").className = target === "today"
-        ? "px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300"
-        : "px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-600 border border-slate-200";
-      document.getElementById("btnShopTomorrow").className = target === "tomorrow"
-        ? "px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300"
-        : "px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-600 border border-slate-200";
-      renderShoppingList();
-    }
-
-    function computeAggregatedShoppingItems() {
-      const isCouple = state.settings.mode === "couple";
-      const users = isCouple ? ["noelia", "nando"] : ["nando"];
-      const totalsMap = {}; // key: `${category}__${name.toLowerCase()}__${unit}`
-      let multiplier = 1;
-      let scopeText = "";
-
-      const accumulateDay = (weekData, dIdx) => {
-        users.forEach(uid => {
-          const daySlots = (weekData[uid] && weekData[uid][dIdx]) || {};
-          Object.values(daySlots).forEach(dishId => {
-            const dish = state.dishes[dishId];
-            if (!dish || !dish.ingredients) return;
-            dish.ingredients.forEach(ing => {
-              const qty = uid === "noelia" ? (Number(ing.gNoelia) || 0) : (Number(ing.gNando) || 0);
-              if (qty <= 0) return;
-              const cat = ing.category || "Despensa, Secos y Aceites";
-              const key = `${cat}__${ing.name.trim().toLowerCase()}__${ing.unit}`;
-              if (!totalsMap[key]) {
-                totalsMap[key] = { key, category: cat, name: ing.name.trim(), unit: ing.unit, total: 0 };
-              }
-              totalsMap[key].total += qty;
-            });
-          });
-        });
-      };
-
-      if (shoppingHorizon === "daily") {
-        let targetIso = getTodayIso();
-        if (dailyShopTarget === "tomorrow") targetIso = getTomorrowIso();
-        else if (dailyShopTarget === "custom") {
-          targetIso = document.getElementById("shopSpecificDateInput").value || getTodayIso();
-        }
-        const wk = getMondayIsoFromAnyDate(targetIso);
-        const wData = ensureWeekExists(wk);
-        const dIdx = getDayIndexFromIso(targetIso);
-        accumulateDay(wData, dIdx);
-        scopeText = `📆 Compra para el ${DAYS_NAMES[dIdx]} (${formatIsoShort(targetIso)}) · ${isCouple ? 'Noelia + Nando' : state.profiles.nando.name}`;
-      } else {
-        const wk = getMondayIsoForOffset(currentWeekOffset);
-        const wData = ensureWeekExists(wk);
-        for (let d = 0; d < 7; d++) accumulateDay(wData, d);
-        if (shoppingHorizon === "monthly") {
-          multiplier = 4;
-          scopeText = `📦 Proyección Mensual (4 semanas × menú activo) · ${isCouple ? 'Noelia + Nando' : state.profiles.nando.name}`;
-        } else {
-          scopeText = `🗓️ Compra Semanal Completa (7 días) · ${isCouple ? 'Noelia + Nando' : state.profiles.nando.name}`;
-        }
-      }
-
-      const grouped = {};
-      Object.values(totalsMap).forEach(item => {
-        item.total = Number((item.total * multiplier).toFixed(1));
-        if (!grouped[item.category]) grouped[item.category] = [];
-        grouped[item.category].push(item);
-      });
-
-      return { grouped, scopeText };
-    }
-
-    function toggleShoppingItemCheck(key) {
-      if (!state.shoppingChecked) state.shoppingChecked = {};
-      if (state.shoppingChecked[key]) delete state.shoppingChecked[key];
-      else state.shoppingChecked[key] = true;
-      saveState(true);
-      renderShoppingList();
-    }
-
-    function resetShoppingChecks() {
-      state.shoppingChecked = {};
-      saveState(true);
-      renderShoppingList();
-    }
-
-    function renderShoppingList() {
-      const { grouped, scopeText } = computeAggregatedShoppingItems();
-      document.getElementById("shoppingScopeSubtitle").textContent = scopeText;
-      const container = document.getElementById("shoppingCategoriesContainer");
-      const categories = Object.keys(grouped);
-
-      if (categories.length === 0) {
-        container.innerHTML = `<p class="text-xs text-slate-400 col-span-2 text-center py-6">No hay ingredientes asignados en este periodo.</p>`;
-        return;
-      }
-
-      container.innerHTML = categories.map(cat => {
-        const rows = grouped[cat].sort((a, b) => a.name.localeCompare(b.name)).map(it => {
-          const checked = !!(state.shoppingChecked && state.shoppingChecked[it.key]);
-          return `
-            <label onclick="toggleShoppingItemCheck('${it.key}')"
-              class="flex items-center justify-between p-2 rounded-xl border cursor-pointer transition-all ${
-                checked ? "bg-slate-100/70 border-slate-200 opacity-55 line-through" : "bg-white border-slate-200 hover:border-emerald-400"
-              }">
-              <div class="flex items-center gap-2 min-w-0">
-                <input type="checkbox" ${checked ? "checked" : ""} class="accent-emerald-600 w-4 h-4 pointer-events-none" />
-                <span class="text-xs font-bold text-slate-800 truncate">${it.name}</span>
-              </div>
-              <span class="text-xs font-extrabold text-emerald-700 ml-2 whitespace-nowrap">${it.total} ${it.unit}</span>
-            </label>
-          `;
-        }).join("");
-
-        return `
-          <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200 space-y-2">
-            <h3 class="text-xs font-extrabold uppercase tracking-wide text-slate-700">${cat}</h3>
-            <div class="space-y-1.5">${rows}</div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function copyShoppingListWhatsApp() {
-      const { grouped, scopeText } = computeAggregatedShoppingItems();
-      let lines = [`🛒 *LISTA DE LA COMPRA*`, scopeText, ""];
-      Object.keys(grouped).forEach(cat => {
-        const pending = grouped[cat].filter(it => !(state.shoppingChecked && state.shoppingChecked[it.key]));
-        if (pending.length > 0) {
-          lines.push(`*${cat.toUpperCase()}*`);
-          pending.forEach(it => lines.push(`• ${it.name}: *${it.total} ${it.unit}*`));
-          lines.push("");
-        }
-      });
-      navigator.clipboard.writeText(lines.join("\n")).then(() => {
-        alert("📋 Lista de la compra copiada al portapapeles. Ya puedes pegarla en WhatsApp o Notas.");
-      });
-    }
-
-    // =========================================================================
-    // 9. SEGUIMIENTO CLÍNICO (PESO, PASOS, BÍCEPS IZQ/DER, CUÁDRICEPS IZQ/DER)
-    // =========================================================================
-    function renderClinicalTab() {
-      const isCouple = state.settings.mode === "couple";
-      const sel = document.getElementById("clinUserSelect");
-      sel.innerHTML = isCouple
-        ? `<option value="nando">👨 Nando</option><option value="noelia">👩 Noelia</option>`
-        : `<option value="nando">👤 ${state.profiles.nando.name}</option>`;
-
-      const dateInp = document.getElementById("clinDateInput");
-      if (!dateInp.value) dateInp.value = getTodayIso();
-
-      const records = (state.clinical || []).slice().sort((a, b) => b.dateIso.localeCompare(a.dateIso));
-      const container = document.getElementById("clinicalHistoryContainer");
-
-      if (records.length === 0) {
-        container.innerHTML = `<p class="text-xs text-slate-400 text-center py-5">Aún no hay mediciones guardadas. Registra tu primer control arriba.</p>`;
-        return;
-      }
-
-      container.innerHTML = `
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="bg-slate-900 text-white text-[10.5px] uppercase">
-              <th class="p-2 rounded-tl-xl">Fecha</th>
-              <th class="p-2">Perfil</th>
-              <th class="p-2">Peso</th>
-              <th class="p-2">Pasos/día</th>
-              <th class="p-2">Cintura / Cadera / Pecho</th>
-              <th class="p-2">Bíceps (Izq / Der)</th>
-              <th class="p-2">Cuádriceps (Izq / Der)</th>
-              <th class="p-2 rounded-tr-xl"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200">
-            ${records.map(r => {
-              const prof = state.profiles[r.userId] || state.profiles.nando;
-              return `
-                <tr class="hover:bg-slate-50">
-                  <td class="p-2 font-bold">${formatIsoShort(r.dateIso)}</td>
-                  <td class="p-2 font-extrabold">${prof.emoji} ${prof.name}</td>
-                  <td class="p-2 font-extrabold text-emerald-700">${r.weight ? r.weight + ' kg' : '-'}</td>
-                  <td class="p-2 font-bold">${r.steps ? Number(r.steps).toLocaleString('es-ES') : '-'}</td>
-                  <td class="p-2">${r.waist || '-'} / ${r.hip || '-'} / ${r.chest || '-'} cm</td>
-                  <td class="p-2 font-semibold text-indigo-700">${r.bicepsL || '-'} / ${r.bicepsR || '-'} cm</td>
-                  <td class="p-2 font-semibold text-emerald-700">${r.quadL || '-'} / ${r.quadR || '-'} cm</td>
-                  <td class="p-2 text-right">
-                    <button onclick="deleteClinicalRecord(${r.id})" class="text-rose-600 font-bold hover:underline">🗑️</button>
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      `;
-    }
-
-    function saveClinicalRecord() {
-      const userId = document.getElementById("clinUserSelect").value;
-      const dateIso = document.getElementById("clinDateInput").value || getTodayIso();
-      const rec = {
-        id: Date.now(),
-        userId,
-        dateIso,
-        weight: parseFloat(document.getElementById("clinWeightInput").value) || null,
-        steps: parseInt(document.getElementById("clinStepsInput").value, 10) || null,
-        waist: parseFloat(document.getElementById("clinWaistInput").value) || null,
-        hip: parseFloat(document.getElementById("clinHipInput").value) || null,
-        chest: parseFloat(document.getElementById("clinChestInput").value) || null,
-        bicepsL: parseFloat(document.getElementById("clinBicepsLInput").value) || null,
-        bicepsR: parseFloat(document.getElementById("clinBicepsRInput").value) || null,
-        quadL: parseFloat(document.getElementById("clinQuadLInput").value) || null,
-        quadR: parseFloat(document.getElementById("clinQuadRInput").value) || null
-      };
-
-      state.clinical.unshift(rec);
-      saveState(true);
-      renderClinicalTab();
-      alert("✅ Medición clínica guardada.");
-    }
-
-    function deleteClinicalRecord(id) {
-      state.clinical = (state.clinical || []).filter(r => r.id !== id);
-      saveState(true);
-      renderClinicalTab();
-    }
-
-    // =========================================================================
-    // 10. RECETARIO Y CONFIGURACIÓN
-    // =========================================================================
-    function renderRecipesTab() {
-      const isCouple = state.settings.mode === "couple";
-      const activeUid = (isCouple && state.settings.activeViewProfile !== "joint") ? state.settings.activeViewProfile : "nando";
-      const profile = state.profiles[activeUid];
-
-      document.getElementById("aiRecipeSlotSelect").innerHTML = (profile.slots || [])
-        .map(s => `<option value="${s.id}">${s.icon} ${s.name} (${s.target.kcal} kcal)</option>`).join("");
-
-      const dinersSel = document.getElementById("aiRecipeDinersSelect");
-      dinersSel.innerHTML = isCouple
-        ? `<option value="joint">👩‍❤️‍👨 Para 2 (Nando + Noelia)</option><option value="nando">👨 Solo Nando (1 pers.)</option><option value="noelia">👩 Solo Noelia (1 pers.)</option>`
-        : `<option value="nando">👤 Individual (${profile.name})</option>`;
-
-      const activeApps = (state.settings.appliances || []).filter(a => a.active).map(a => a.name.split("(")[0].trim()).join(", ");
-      document.getElementById("activeAppliancesInline").textContent = activeApps || "Estándar";
-
-      const filterSel = document.getElementById("recipeFilterSlot");
-      const curFilter = filterSel.value || "all";
-      filterSel.innerHTML = `<option value="all">Todas las tomas</option>` +
-        (profile.slots || []).map(s => `<option value="${s.id}" ${curFilter === s.id ? 'selected' : ''}>${s.icon} ${s.name}</option>`).join("");
-
-      renderRecipesLibrary();
-    }
-
-    function renderRecipesLibrary() {
-      const filterSlot = document.getElementById("recipeFilterSlot").value || "all";
-      const isCouple = state.settings.mode === "couple";
-      const modeView = isCouple ? state.settings.activeViewProfile : "nando";
-
-      const dishes = Object.values(state.dishes).filter(d => filterSlot === "all" || d.slotId === filterSlot);
-      document.getElementById("recipesLibraryGrid").innerHTML = dishes.map(d => `
-        <div onclick="openRecipeDetailModal('${d.id}', '${modeView}')"
-          class="p-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 cursor-pointer transition-all space-y-1">
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600">${d.slotId}</span>
-            <span class="text-[10.5px] font-bold text-emerald-700">Ver en equipos →</span>
-          </div>
-          <h4 class="text-xs font-extrabold text-slate-900">${d.title}</h4>
-          <p class="text-[11px] text-slate-500 line-clamp-1">
-            ${(d.ingredients || []).map(i => i.name).join(" · ")}
-          </p>
-        </div>
-      `).join("");
-    }
-
-    function renderSettingsTab() {
-      const isCouple = state.settings.mode === "couple";
-      document.querySelectorAll('input[name="appModeRadio"]').forEach(r => {
-        r.checked = (r.value === state.settings.mode);
-      });
-
-      document.getElementById("importTargetUserSelect").innerHTML = isCouple
-        ? `<option value="nando">👨 Nando</option><option value="noelia">👩 Noelia</option>`
-        : `<option value="nando">👤 ${state.profiles.nando.name}</option>`;
-
-      // Editor manual de perfiles
-      const usersToEdit = isCouple ? ["nando", "noelia"] : ["nando"];
-      document.getElementById("manualMacrosEditorBox").innerHTML = usersToEdit.map(uid => {
-        const p = state.profiles[uid];
-        return `
-          <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-extrabold text-slate-900">${p.emoji} Objetivos Diarios de ${p.name}</span>
-              <button onclick="saveManualProfileMacros('${uid}')" class="px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-bold">Guardar</button>
-            </div>
-            <div class="grid grid-cols-4 gap-2">
-              <div>
-                <label class="text-[10px] font-bold text-slate-500">Kcal/día</label>
-                <input type="number" id="editKcal_${uid}" value="${p.dailyTarget.kcal}" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold" />
-              </div>
-              <div>
-                <label class="text-[10px] font-bold text-slate-500">Prot (g)</label>
-                <input type="number" id="editP_${uid}" value="${p.dailyTarget.p}" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold" />
-              </div>
-              <div>
-                <label class="text-[10px] font-bold text-slate-500">HC (g)</label>
-                <input type="number" id="editHC_${uid}" value="${p.dailyTarget.hc}" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold" />
-              </div>
-              <div>
-                <label class="text-[10px] font-bold text-slate-500">Grasas (g)</label>
-                <input type="number" id="editG_${uid}" value="${p.dailyTarget.g}" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold" />
-              </div>
-            </div>
-            <div>
-              <label class="text-[10px] font-bold text-slate-500">Restricciones / Intolerancias</label>
-              <input type="text" id="editRest_${uid}" value="${p.restrictions || ''}" class="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs" />
-            </div>
-          </div>
-        `;
-      }).join("");
-
-      // Lista de electrodomésticos
-      document.getElementById("appliancesManagerList").innerHTML = (state.settings.appliances || []).map((app, idx) => `
-        <label class="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
-          <div class="flex items-center gap-2">
-            <input type="checkbox" ${app.active ? "checked" : ""} onchange="toggleAppliance(${idx})" class="accent-emerald-600 w-4 h-4" />
-            <span class="text-xs font-bold text-slate-800">${app.name}</span>
-          </div>
-          <button onclick="removeAppliance(${idx})" class="text-rose-500 text-xs font-bold px-2">✕</button>
-        </label>
-      `).join("");
-
-      document.getElementById("geminiApiKeyInput").value = state.settings.geminiApiKey || "";
-      document.getElementById("firebaseDbUrlInput").value = state.settings.firebaseDbUrl || "";
-      document.getElementById("firebaseRoomInput").value = state.settings.firebaseRoom || "hogar_nando_noelia";
-    }
-
-    function setAppUsageMode(mode) {
-      state.settings.mode = mode;
-      if (mode === "individual") state.settings.activeViewProfile = "nando";
-      saveState(true);
-      renderAll();
-    }
-
-    function saveManualProfileMacros(uid) {
-      const p = state.profiles[uid];
-      p.dailyTarget.kcal = Number(document.getElementById(`editKcal_${uid}`).value) || p.dailyTarget.kcal;
-      p.dailyTarget.p = Number(document.getElementById(`editP_${uid}`).value) || p.dailyTarget.p;
-      p.dailyTarget.hc = Number(document.getElementById(`editHC_${uid}`).value) || p.dailyTarget.hc;
-      p.dailyTarget.g = Number(document.getElementById(`editG_${uid}`).value) || p.dailyTarget.g;
-      p.restrictions = document.getElementById(`editRest_${uid}`).value.trim();
-      saveState(true);
-      renderAll();
-      alert(`✅ Objetivos de ${p.name} actualizados.`);
-    }
-
-    function toggleAppliance(idx) {
-      state.settings.appliances[idx].active = !state.settings.appliances[idx].active;
-      saveState(true);
-    }
-
-    function addNewAppliance() {
-      const inp = document.getElementById("newApplianceInput");
-      const val = inp.value.trim();
-      if (!val) return;
-      state.settings.appliances.push({ id: "app_" + Date.now(), name: val, active: true });
-      inp.value = "";
-      saveState(true);
-      renderSettingsTab();
-    }
-
-    function removeAppliance(idx) {
-      state.settings.appliances.splice(idx, 1);
-      saveState(true);
-      renderSettingsTab();
-    }
-
-    function saveConnectionsSettings() {
-      state.settings.geminiApiKey = document.getElementById("geminiApiKeyInput").value.trim();
-      state.settings.firebaseDbUrl = document.getElementById("firebaseDbUrlInput").value.trim();
-      state.settings.firebaseRoom = document.getElementById("firebaseRoomInput").value.trim() || "hogar_nando_noelia";
-      saveState(true);
-      initFirebaseSync();
-      alert("✅ Configuración guardada y sincronizada.");
-    }
-
-    function exportBackupJSON() {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `NutriPlan_Backup_${getTodayIso()}.json`;
-      a.click();
-    }
-
-    function importBackupJSON(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          state = JSON.parse(reader.result);
-          saveState(true);
-          renderAll();
-          alert("✅ Copia de seguridad restaurada.");
-        } catch (err) {
-          alert("Archivo JSON no válido.");
-        }
-      };
-      reader.readAsText(file);
-    }
-
-    // =========================================================================
-    // 11. LOS 3 PDFs DE UNA SOLA HOJA CADA UNO
-    // =========================================================================
-
-    // PDF 1 (1 Hoja A3): Solo Almuerzos y Cenas (Alimentos y pesos en crudo, sin pasos)
-    function printMealsPDF() {
-      const weekKey = getMondayIsoForOffset(currentWeekOffset);
-      const weekData = ensureWeekExists(weekKey);
-      const isCouple = state.settings.mode === "couple";
-
-      const rowsHtml = DAYS_NAMES.map((dayName, dIdx) => {
-        const dIdNoeL = weekData.noelia?.[dIdx]?.almuerzo;
-        const dIdNanL = weekData.nando?.[dIdx]?.almuerzo;
-        const dIdNoeC = weekData.noelia?.[dIdx]?.cena;
-        const dIdNanC = weekData.nando?.[dIdx]?.cena;
-
-        const renderMealCell = (dIdNoe, dIdNan, accentColor) => {
-          if (!isCouple) {
-            const dish = state.dishes[dIdNan];
-            if (!dish) return "<i>Sin asignar</i>";
-            const ings = (dish.ingredients || []).map(i => `<li><b>${i.name}:</b> ${i.gNando}${i.unit}</li>`).join("");
-            return `<div class="m-title" style="color:${accentColor};">${dish.title}</div><ul>${ings}</ul>`;
-          }
-
-          if (dIdNoe && dIdNoe === dIdNan && state.dishes[dIdNoe]) {
-            const dish = state.dishes[dIdNoe];
-            const ings = (dish.ingredients || []).map(i =>
-              `<li><b>${i.name}:</b> Noelia <b>${i.gNoelia}${i.unit}</b> | Nando <b>${i.gNando}${i.unit}</b> <span class="tot">(Tot: ${Number((i.gNoelia + i.gNando).toFixed(1))}${i.unit})</span></li>`
-            ).join("");
-            return `<div class="m-title" style="color:${accentColor};">${dish.title}</div><ul>${ings}</ul>`;
-          } else {
-            const dN = state.dishes[dIdNoe];
-            const dM = state.dishes[dIdNan];
-            return `
-              <div class="split-box">
-                <div><b>👩 Noelia:</b> ${dN ? dN.title : '-'} (${dN ? dN.ingredients.map(i => `${i.name} ${i.gNoelia}${i.unit}`).join(', ') : ''})</div>
-                <div style="margin-top:3px;"><b>👨 Nando:</b> ${dM ? dM.title : '-'} (${dM ? dM.ingredients.map(i => `${i.name} ${i.gNando}${i.unit}`).join(', ') : ''})</div>
-              </div>
-            `;
-          }
-        };
-
-        return `
-          <tr>
-            <td class="day-cell">${dayName}</td>
-            <td>${renderMealCell(dIdNoeL, dIdNanL, "#065f46")}</td>
-            <td>${renderMealCell(dIdNoeC, dIdNanC, "#3730a3")}</td>
-          </tr>
-        `;
-      }).join("");
-
-      const w = window.open("", "_blank");
-      w.document.write(`
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-          <meta charset="UTF-8">
-          <title>Comidas y Cenas (1 Hoja A3)</title>
-          <style>
-            @page { size: A3 portrait; margin: 8mm 10mm; }
-            * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; }
-            .hdr { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2.5px solid #0f172a; padding-bottom: 4px; margin-bottom: 8px; }
-            .hdr h1 { font-size: 18px; margin: 0; color: #065f46; }
-            .hdr span { font-size: 11px; font-weight: bold; color: #475569; }
-            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            th, td { border: 1.5px solid #64748b; padding: 8px 10px; vertical-align: top; text-align: left; }
-            th { background: #0f172a; color: white; font-size: 13px; text-transform: uppercase; }
-            .day-cell { width: 11%; font-weight: 900; font-size: 14px; text-align: center; vertical-align: middle; background: #f8fafc; }
-            .m-title { font-weight: 800; font-size: 13.5px; margin-bottom: 4px; }
-            ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.38; }
-            .tot { font-weight: 800; color: #047857; }
-            .split-box { font-size: 11.5px; line-height: 1.35; }
-          </style>
-        </head>
-        <body>
-          <div class="hdr">
-            <h1>🍽️ PLAN SEMANAL DE COMIDAS Y CENAS — ALIMENTOS Y PESOS EN CRUDO</h1>
-            <span>Semana del ${formatIsoShort(weekKey)} · ${isCouple ? `Noelia (${state.profiles.noelia.dailyTarget.kcal} kcal) & Nando (${state.profiles.nando.dailyTarget.kcal} kcal)` : `${state.profiles.nando.name} (${state.profiles.nando.dailyTarget.kcal} kcal)`}</span>
-          </div>
-          <table>
-            <thead>
-              <tr><th class="day-cell">Día</th><th>🍽️ Almuerzo</th><th>🌙 Cena</th></tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-          <script>window.onload = () => window.print();<\/script>
-        </body>
-        </html>
-      `);
-      w.document.close();
-    }
-
-    // PDF 2 (1 Hoja A4 Horizontal): Desayunos, Meriendas y Comodines por Usuario
-    function printBreakfastSnacksPDF() {
-      const isCouple = state.settings.mode === "couple";
-      const users = isCouple ? ["noelia", "nando"] : ["nando"];
-
-      const colsHtml = users.map(uid => {
-        const prof = state.profiles[uid];
-        const sideSlots = (prof.slots || []).filter(s => !s.isMainMeal);
-
-        const sectionsHtml = sideSlots.map(slot => {
-          const matching = Object.values(state.dishes).filter(d => d.slotId === slot.id);
-          const cards = matching.map(d => {
-            const ings = (d.ingredients || []).map(i => `${i.name}: <b>${uid === 'noelia' ? i.gNoelia : i.gNando}${i.unit}</b>`).join(" · ");
-            return `<div class="opt-item"><div class="opt-title">${d.title}</div><div class="opt-ings">${ings}</div></div>`;
-          }).join("");
-
-          return `
-            <div class="slot-block">
-              <div class="slot-hdr">${slot.icon} ${slot.name.toUpperCase()} (${slot.target.kcal} kcal · ${slot.target.p}P / ${slot.target.hc}HC / ${slot.target.g}G)</div>
-              ${cards || '<div class="opt-ings">Sin opciones cargadas</div>'}
-            </div>
-          `;
-        }).join("");
-
-        return `
-          <div class="user-col">
-            <div class="user-hdr">${prof.emoji} PLAN DE ${prof.name.toUpperCase()} (${prof.dailyTarget.kcal} KCAL/DÍA)</div>
-            <div class="rest-note"><b>Pautas:</b> ${prof.restrictions || 'Sin restricciones'}</div>
-            ${sectionsHtml}
-          </div>
-        `;
-      }).join("");
-
-      const w = window.open("", "_blank");
-      w.document.write(`
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-          <meta charset="UTF-8">
-          <title>Desayunos y Meriendas por Usuario (1 Hoja A4)</title>
-          <style>
-            @page { size: A4 landscape; margin: 6mm 8mm; }
-            * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; font-size: 9.5px; }
-            .top-hdr { border-bottom: 2px solid #0f172a; padding-bottom: 3px; margin-bottom: 6px; display: flex; justify-content: space-between; }
-            .top-hdr h1 { font-size: 13px; margin: 0; color: #065f46; }
-            .grid { display: grid; grid-template-columns: ${isCouple ? '1fr 1fr' : '1fr'}; gap: 10px; }
-            .user-col { border: 1.5px solid #94a3b8; border-radius: 8px; padding: 6px; }
-            .user-hdr { background: #0f172a; color: white; font-weight: 800; padding: 4px 8px; border-radius: 5px; font-size: 11px; margin-bottom: 4px; }
-            .rest-note { background: #fef3c7; padding: 3px 6px; border-radius: 4px; font-size: 8.5px; margin-bottom: 5px; }
-            .slot-block { margin-bottom: 5px; }
-            .slot-hdr { background: #e2e8f0; font-weight: 800; padding: 2.5px 6px; border-radius: 4px; font-size: 9.5px; margin-bottom: 3px; }
-            .opt-item { border-bottom: 1px dashed #cbd5e1; padding: 2.5px 2px; }
-            .opt-title { font-weight: 800; font-size: 9.5px; }
-            .opt-ings { color: #334155; font-size: 9px; }
-          </style>
-        </head>
-        <body>
-          <div class="top-hdr">
-            <h1>☕ CATÁLOGO DE DESAYUNOS, MERIENDAS Y COMODINES POR USUARIO</h1>
-            <span>Opciones intercambiables libremente · Pesos exactos en crudo</span>
-          </div>
-          <div class="grid">${colsHtml}</div>
-          <script>window.onload = () => window.print();<\/script>
-        </body>
-        </html>
-      `);
-      w.document.close();
-    }
-
-    // PDF 3 (1 Hoja A4 Vertical): Revisión Nutricionista (Evolución Clínica + Desfases)
-    function printClinicalReviewPDF() {
-      const targetUid = document.getElementById("clinUserSelect")?.value || "nando";
-      const prof = state.profiles[targetUid];
-      const clinRows = (state.clinical || []).filter(r => r.userId === targetUid).sort((a, b) => b.dateIso.localeCompare(a.dateIso)).slice(0, 14);
-      const devRows = (state.deviations || []).filter(d => d.userId === targetUid).slice(0, 14);
-
-      const w = window.open("", "_blank");
-      w.document.write(`
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-          <meta charset="UTF-8">
-          <title>Informe Revisión Nutricionista — ${prof.name}</title>
-          <style>
-            @page { size: A4 portrait; margin: 8mm 10mm; }
-            * { box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; font-size: 10px; }
-            h1 { font-size: 15px; color: #065f46; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin: 0 0 6px 0; }
-            h2 { font-size: 11.5px; background: #f1f5f9; padding: 4px 8px; border-left: 3px solid #0f172a; margin: 8px 0 4px 0; }
-            table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-            th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; }
-            th { background: #0f172a; color: white; }
-          </style>
-        </head>
-        <body>
-          <h1>🩺 INFORME DE REVISIÓN NUTRICIONAL — ${prof.name.toUpperCase()} (${prof.dailyTarget.kcal} kcal/día)</h1>
-          <p style="margin:0 0 6px 0;"><b>Objetivo Macros:</b> ${prof.dailyTarget.p}g Proteína · ${prof.dailyTarget.hc}g Hidratos · ${prof.dailyTarget.g}g Grasas</p>
-
-          <h2>1. Evolución de Peso, Pasos y Perímetros Corporales</h2>
-          <table>
-            <thead>
-              <tr><th>Fecha</th><th>Peso</th><th>Pasos/día</th><th>Cintura</th><th>Cadera</th><th>Pecho</th><th>Bíceps (I / D)</th><th>Cuádriceps (I / D)</th></tr>
-            </thead>
-            <tbody>
-              ${clinRows.length === 0 ? '<tr><td colspan="8">Sin mediciones registradas</td></tr>' : clinRows.map(r => `
-                <tr>
-                  <td><b>${formatIsoShort(r.dateIso)}</b></td>
-                  <td><b>${r.weight || '-'} kg</b></td>
-                  <td>${r.steps || '-'}</td>
-                  <td>${r.waist || '-'} cm</td>
-                  <td>${r.hip || '-'} cm</td>
-                  <td>${r.chest || '-'} cm</td>
-                  <td>${r.bicepsL || '-'} / ${r.bicepsR || '-'} cm</td>
-                  <td>${r.quadL || '-'} / ${r.quadR || '-'} cm</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-
-          <h2>2. Registro de Desfases / Ingestas Fuera de Plan</h2>
-          <table>
-            <thead>
-              <tr><th>Fecha</th><th>Toma</th><th>Tipo</th><th>Descripción</th><th>Estimación IA</th></tr>
-            </thead>
-            <tbody>
-              ${devRows.length === 0 ? '<tr><td colspan="5">Sin desfases registrados</td></tr>' : devRows.map(d => `
-                <tr>
-                  <td><b>${formatIsoShort(d.dateIso)}</b></td>
-                  <td>${d.slotId}</td>
-                  <td>${d.mode === 'replace' ? 'Sustituye toma' : 'Extra añadido'}</td>
-                  <td>${d.text}</td>
-                  <td><b>${d.macros.kcal} kcal</b> (${d.macros.p}P / ${d.macros.hc}HC / ${d.macros.g}G)</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-          <script>window.onload = () => window.print();<\/script>
-        </body>
-        </html>
-      `);
-      w.document.close();
-    }
-
-    // =========================================================================
-    // 12. RENDER GLOBAL E INICIALIZACIÓN
-    // =========================================================================
-    function renderAll() {
-      renderProfileSwitcher();
-      renderAdherenceCounters();
-      renderPlanner();
-      renderRecipesTab();
-      renderShoppingList();
-      renderDeviationsTab();
-      renderClinicalTab();
-      renderSettingsTab();
-    }
-
-    window.addEventListener("DOMContentLoaded", () => {
-      loadInitialState();
-      document.getElementById("shopSpecificDateInput").value = getTodayIso();
-      renderAll();
-      initFirebaseSync();
-    });
-  </script>
-  <script src="mejora.js"></script>
-</body>
+  <!-- ====================================================================== -->
+  <!-- ÁREA DE IMPRESIÓN OCULTA + NOTIFICACIÓN TOAST                          -->
+  <!-- ====================================================================== -->
+  <div id="printArea" class="hidden"></div>
+
+  <div id="appToast"
+    class="fixed top-4 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2.5 rounded-2xl bg-slate-900 text-white text-xs font-extrabold shadow-xl max-w-[90vw] text-center no-print">
+  </div>
+
+  <!-- Lógica principal limpia (Fase 3 - Parte 2) -->
+  <script src="mejora.js?v=3.0"></script>
 </body>
 </html>
+Mostrando index.html.
